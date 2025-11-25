@@ -5,7 +5,6 @@ try:
     import tiktoken
 except Exception:
     tiktoken = None
-from langchain import Wikipedia
 from langchain.llms.base import BaseLLM
 # from langchain.chat_models import ChatOpenAI
 from langchain.chat_models.base import BaseChatModel
@@ -14,8 +13,8 @@ from langchain.schema import (
     HumanMessage,
     AIMessage,
 )
-from langchain.agents.react.base import DocstoreExplorer
-from langchain.docstore.base import Docstore
+# Docstore integration is optional. We avoid importing heavy langchain docstore
+# modules at top-level to make the module importable when langchain is not installed.
 from langchain.prompts import PromptTemplate
 from prompts import reflect_prompt, react_agent_prompt, react_reflect_agent_prompt, REFLECTION_HEADER, LAST_TRIAL_HEADER, REFLECTION_AFTER_LAST_TRIAL_HEADER
 from prompts import cot_agent_prompt, cot_reflect_agent_prompt, cot_reflect_prompt, COT_INSTRUCTION, COT_REFLECT_INSTRUCTION
@@ -153,7 +152,7 @@ class ReactAgent:
                  key: str,
                  max_steps: int = 6,
                  agent_prompt: PromptTemplate = react_agent_prompt,
-                 docstore: Docstore = Wikipedia(),
+                 docstore: Optional[Any] = None,
                  react_llm: Optional[Any] = None,
                  ) -> None:
         
@@ -164,7 +163,16 @@ class ReactAgent:
         self.agent_prompt = agent_prompt
         self.react_examples = WEBTHINK_SIMPLE6
 
-        self.docstore = DocstoreExplorer(docstore) # Search, Lookup
+        # If a docstore was provided, try to wrap it with langchain's DocstoreExplorer
+        if docstore is None:
+            self.docstore = None
+        else:
+            try:
+                from langchain.agents.react.base import DocstoreExplorer
+                self.docstore = DocstoreExplorer(docstore)
+            except Exception:
+                # langchain (or DocstoreExplorer) not available; disable docstore features
+                self.docstore = None
         self.llm = react_llm
 
         # tolerant tokenizer: try tiktoken, otherwise simple whitespace encoder
@@ -215,17 +223,23 @@ class ReactAgent:
             return
 
         if action_type == 'Search':
-            try:
-                self.scratchpad += format_step(self.docstore.search(argument))
-            except Exception as e:
-                print(e)
-                self.scratchpad += f'Could not find that page, please try again.'
+            if self.docstore is None:
+                self.scratchpad += ' [No docstore configured]' 
+            else:
+                try:
+                    self.scratchpad += format_step(self.docstore.search(argument))
+                except Exception as e:
+                    print(e)
+                    self.scratchpad += f'Could not find that page, please try again.'
             
         elif action_type == 'Lookup':
-            try:
-                self.scratchpad += format_step(self.docstore.lookup(argument))
-            except ValueError:
-                self.scratchpad += f'The last page Searched was not found, so you cannot Lookup a keyword in it. Please try one of the similar pages given.'
+            if self.docstore is None:
+                self.scratchpad += ' [No docstore configured] '
+            else:
+                try:
+                    self.scratchpad += format_step(self.docstore.lookup(argument))
+                except ValueError:
+                    self.scratchpad += f'The last page Searched was not found, so you cannot Lookup a keyword in it. Please try one of the similar pages given.'
 
         else:
             self.scratchpad += 'Invalid Action. Valid Actions are Lookup[<topic>] Search[<topic>] and Finish[<answer>].'
@@ -326,7 +340,13 @@ class ReactReflectAgent(ReactAgent):
    
 
 ### String Stuff ###
-gpt2_enc = tiktoken.encoding_for_model("text-davinci-003")
+if tiktoken is not None:
+    gpt2_enc = tiktoken.encoding_for_model("text-davinci-003")
+else:
+    class _SimpleEnc2:
+        def encode(self, s: str):
+            return s.split()
+    gpt2_enc = _SimpleEnc2()
 
 def parse_action(string):
     pattern = r'^(\w+)\[(.+)\]$'
