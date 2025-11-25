@@ -202,7 +202,7 @@ def extract_text(field_value) -> str:
     return str(field_value)
 
 
-def run(args):
+def run(args, external_llm=None):
     print(f"Loading dataset {args.dataset} split={args.split}...")
     try:
         from datasets import load_dataset
@@ -234,9 +234,13 @@ def run(args):
         print('Could not detect a question field. Dataset feature keys:', list(sample.keys()))
         return
 
-    # instantiate llm
-    llm = build_llm(args)
-    print('LLM instantiated:', llm)
+    # instantiate llm (or use a pre-initialized one when provided)
+    if external_llm is not None:
+        llm = external_llm
+        print('Using externally provided LLM instance')
+    else:
+        llm = build_llm(args)
+        print('LLM instantiated:', llm)
 
     # Choose agent type: use ReactAgent as default
     if args.agent == 'react':
