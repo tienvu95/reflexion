@@ -1,8 +1,11 @@
 import os
-from typing import List, Any, Optional
+from typing import List
 import dotenv
 
 import gym
+import tiktoken
+from langchain import OpenAI
+from langchain.llms.base import BaseLLM
 from langchain.prompts import PromptTemplate
 
 from environment import QAEnv
@@ -19,9 +22,14 @@ class ReactAgent:
                  question: str,
                  env: QAEnv,
                  agent_prompt: PromptTemplate = react_agent_prompt,
-                 react_llm: Optional[Any] = None,
+                 react_llm: BaseLLM = OpenAI(
+                                             temperature=0,
+                                             max_tokens=100,
+                                             model_name="text-davinci-003",
+                                             model_kwargs={"stop": "\n"},
+                                             openai_api_key=os.environ['OPENAI_API_KEY']),
                  ) -> None:
-
+        
         self.question = question
         self.agent_prompt = agent_prompt
         self.react_examples = WEBTHINK_SIMPLE6
@@ -31,32 +39,9 @@ class ReactAgent:
         self.reset()
         self.truncated, self.reward, self.terminated = False, False, False
 
-        # If no LLM provided, try to construct a default OpenAI LLM (only if key present).
-        if react_llm is None:
-            try:
-                from langchain import OpenAI
-                if 'OPENAI_API_KEY' in os.environ:
-                    react_llm = OpenAI(
-                        temperature=0,
-                        max_tokens=100,
-                        model_name="text-davinci-003",
-                        model_kwargs={"stop": "\n"},
-                        openai_api_key=os.environ['OPENAI_API_KEY'])
-            except Exception:
-                react_llm = None
-
-        # Expect any callable LLM-like object: llm(prompt: str) -> str
         self.llm = react_llm
-
-        # Lazy/tolerant tokenizer: prefer tiktoken if available, otherwise a simple whitespace encoder
-        try:
-            import tiktoken
-            self.enc = tiktoken.encoding_for_model("text-davinci-003")
-        except Exception:
-            class _SimpleEnc:
-                def encode(self, s: str):
-                    return s.split()
-            self.enc = _SimpleEnc()
+        
+        self.enc = tiktoken.encoding_for_model("text-davinci-003")
 
     def run(self, reset = True) -> None:
         if reset:
@@ -85,9 +70,6 @@ class ReactAgent:
         print(self.scratchpad.split('\n')[-1])
 
     def prompt_agent(self) -> str:
-        if self.llm is None:
-            raise RuntimeError(
-                "No LLM configured for ReactAgent. Pass a callable `react_llm` (e.g. an HF adapter) or set OPENAI_API_KEY.")
         return format_step(self.llm(self._build_agent_prompt()))
     
     def _build_agent_prompt(self) -> str:
@@ -103,11 +85,7 @@ class ReactAgent:
         return self.env.is_correct()
 
     def is_truncated(self) -> bool:
-        try:
-            token_len = len(self.enc.encode(self._build_agent_prompt()))
-        except Exception:
-            token_len = len(self._build_agent_prompt().split())
-        return self.env.is_truncated() or (token_len > 3896)
+        return self.env.is_truncated() or (len(self.enc.encode(self._build_agent_prompt())) > 3896)
 
     def reset(self) -> None:
         self.scratchpad = ''
@@ -123,22 +101,20 @@ class ReactReflectAgent(ReactAgent):
                  env: QAEnv,
                  agent_prompt: PromptTemplate = react_reflect_agent_prompt,
                  reflect_prompt: PromptTemplate = reflect_prompt,
-                 react_llm: Optional[Any] = None,
-                 reflect_llm: Optional[Any] = None,
+                 react_llm: BaseLLM = OpenAI(
+                                             temperature=0,
+                                             max_tokens=100,
+                                             model_name="text-davinci-003",
+                                             model_kwargs={"stop": "\n"},
+                                             openai_api_key=os.environ['OPENAI_API_KEY']),
+                 reflect_llm: BaseLLM = OpenAI(
+                                               temperature=0,
+                                               max_tokens=250,
+                                               model_name="text-davinci-003",
+                                               openai_api_key=os.environ['OPENAI_API_KEY']),
                  ) -> None:
-
+        
         super().__init__(question, env, agent_prompt, react_llm)
-
-        # If no reflect_llm provided, try OpenAI if available
-        if reflect_llm is None:
-            try:
-                from langchain import OpenAI
-                if 'OPENAI_API_KEY' in os.environ:
-                    reflect_llm = OpenAI(temperature=0, max_tokens=250, model_name="text-davinci-003",
-                                          openai_api_key=os.environ['OPENAI_API_KEY'])
-            except Exception:
-                reflect_llm = None
-
         self.reflect_llm = reflect_llm
         self.reflect_prompt = reflect_prompt
         self.reflect_examples = REFLECTIONS

@@ -15,12 +15,49 @@ try:
     )
 except Exception:
     from langchain_shim import BaseLLM, BaseChatModel, SystemMessage, HumanMessage, AIMessage
+# Try to import AnyOpenAILLM from the package or top-level fallback.
+try:
+    from hotpotqa_runs.llm import AnyOpenAILLM
+except Exception:
+    try:
+        from llm import AnyOpenAILLM
+    except Exception:
+        AnyOpenAILLM = None
 # Docstore integration is optional. We avoid importing heavy langchain docstore
 # modules at top-level to make the module importable when langchain is not installed.
-from prompt_shim import PromptTemplate
-from prompts import reflect_prompt, react_agent_prompt, react_reflect_agent_prompt, REFLECTION_HEADER, LAST_TRIAL_HEADER, REFLECTION_AFTER_LAST_TRIAL_HEADER
-from prompts import cot_agent_prompt, cot_reflect_agent_prompt, cot_reflect_prompt, COT_INSTRUCTION, COT_REFLECT_INSTRUCTION
-from fewshots import WEBTHINK_SIMPLE6, REFLECTIONS, COT, COT_REFLECT
+# package-aware imports: allow running as `python -m hotpotqa_runs.run_local_llm_demo`
+try:
+    from hotpotqa_runs.prompt_shim import PromptTemplate
+    from hotpotqa_runs.prompts import (
+        reflect_prompt,
+        react_agent_prompt,
+        react_reflect_agent_prompt,
+        REFLECTION_HEADER,
+        LAST_TRIAL_HEADER,
+        REFLECTION_AFTER_LAST_TRIAL_HEADER,
+        cot_agent_prompt,
+        cot_reflect_agent_prompt,
+        cot_reflect_prompt,
+        COT_INSTRUCTION,
+        COT_REFLECT_INSTRUCTION,
+    )
+    from hotpotqa_runs.fewshots import WEBTHINK_SIMPLE6, REFLECTIONS, COT, COT_REFLECT
+except Exception:
+    from prompt_shim import PromptTemplate
+    from prompts import (
+        reflect_prompt,
+        react_agent_prompt,
+        react_reflect_agent_prompt,
+        REFLECTION_HEADER,
+        LAST_TRIAL_HEADER,
+        REFLECTION_AFTER_LAST_TRIAL_HEADER,
+        cot_agent_prompt,
+        cot_reflect_agent_prompt,
+        cot_reflect_prompt,
+        COT_INSTRUCTION,
+        COT_REFLECT_INSTRUCTION,
+    )
+    from fewshots import WEBTHINK_SIMPLE6, REFLECTIONS, COT, COT_REFLECT
 
 
 class ReflexionStrategy(Enum):
@@ -140,7 +177,28 @@ class CoTAgent:
     def prompt_agent(self) -> str:
         if self.action_llm is None:
             raise RuntimeError("No action LLM configured. Pass `action_llm` (e.g. AnyHFLLM) or set OPENAI_API_KEY for a fallback OpenAI LLM.")
-        return format_step(self.action_llm(self._build_agent_prompt()))
+        # Try to get a properly formatted Action[...] from the LLM. If the
+        # model returns freeform text, retry with a brief instruction to
+        # respond only with the Action[...] line. This helps when models do
+        # not strictly follow the examples.
+        max_retries = 2
+        attempt = 0
+        last_out = ''
+        while attempt <= max_retries:
+            out = format_step(self.action_llm(self._build_agent_prompt()))
+            last_out = out
+            action_type, argument = parse_action(out)
+            if action_type is not None:
+                return out
+            # prepare a short follow-up that requests the correct format
+            followup = '\nPlease respond with exactly one `Action:` line in the format Action[<type>[<argument>]] using one of: Search[...], Lookup[...], Finish[...]. Output only that Action line.'
+            out = format_step(self.action_llm(self._build_agent_prompt() + followup))
+            action_type, argument = parse_action(out)
+            if action_type is not None:
+                return out
+            attempt += 1
+        # return last output even if malformed; caller will detect invalid action
+        return last_out
     
     def _build_agent_prompt(self) -> str:
         return self.agent_prompt.format(
@@ -268,7 +326,23 @@ class ReactAgent:
     def prompt_agent(self) -> str:
         if self.llm is None:
             raise RuntimeError("No LLM configured for ReactAgent. Pass `react_llm` (e.g. AnyHFLLM) or set OPENAI_API_KEY for a fallback OpenAI LLM.")
-        return format_step(self.llm(self._build_agent_prompt()))
+        # Similar retry wrapper as CoTAgent.prompt_agent to enforce Action[...] format
+        max_retries = 2
+        attempt = 0
+        last_out = ''
+        while attempt <= max_retries:
+            out = format_step(self.llm(self._build_agent_prompt()))
+            last_out = out
+            action_type, argument = parse_action(out)
+            if action_type is not None:
+                return out
+            followup = '\nPlease respond with exactly one `Action:` line in the format Action[<type>[<argument>]] using one of: Search[...], Lookup[...], Finish[...]. Output only that Action line.'
+            out = format_step(self.llm(self._build_agent_prompt() + followup))
+            action_type, argument = parse_action(out)
+            if action_type is not None:
+                return out
+            attempt += 1
+        return last_out
     
     def _build_agent_prompt(self) -> str:
         return self.agent_prompt.format(
@@ -365,16 +439,38 @@ else:
     gpt2_enc = _SimpleEnc2()
 
 def parse_action(string):
+    if string is None:
+        return None, None
+    s = string.strip()
+    # If model printed an Action: prefix, take the text after it
+    if s.lower().startswith('action:'):
+        s = s[len('action:'):].strip()
+
+    # Try strict pattern first: TYPE[arg]
     pattern = r'^(\w+)\[(.+)\]$'
-    match = re.match(pattern, string)
-    
+    match = re.match(pattern, s)
     if match:
         action_type = match.group(1)
         argument = match.group(2)
         return action_type, argument
-    
-    else:
-        return None
+
+    # Try to find any TYPE[...] anywhere in the string
+    match = re.search(r'(\w+)\[([^\]]+)\]', s)
+    if match:
+        return match.group(1), match.group(2)
+
+    # Heuristic fallbacks: if the output is short, treat it as Finish[<output>]
+    tokens = s.split()
+    if 0 < len(tokens) <= 8:
+        # common yes/no single-word answers
+        return 'Finish', s
+
+    # If the output contains the word 'finish' followed by bracket-like text
+    m = re.search(r'finish\s*[:\[]\s*([^\]\n]+)', s, flags=re.IGNORECASE)
+    if m:
+        return 'Finish', m.group(1).strip()
+
+    return None, None
 
 def format_step(step: str) -> str:
     return step.strip('\n').strip().replace('\n', '')

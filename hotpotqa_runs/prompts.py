@@ -1,4 +1,4 @@
-from prompt_shim import PromptTemplate
+from langchain.prompts import PromptTemplate
 
 COT_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task. You will be given context that you should use to help you answer the question.
 Here are some examples:
@@ -97,6 +97,20 @@ Here are some examples:
 (END OF EXAMPLES)
 Question: {question}{scratchpad}"""
 
+# Stronger instruction variant that enforces Action formatting strictly
+REACT_INSTRUCTION_STRICT = """Solve a question answering task with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
+(1) Search[entity], which searches the exact entity on Wikipedia and returns the first paragraph if it exists. If not, it will return some similar entities to search.
+(2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
+(3) Finish[answer], which returns the answer and finishes the task.
+
+IMPORTANT: When you output an Action, OUTPUT EXACTLY one line that begins with `Action:` followed by one of the three action forms above (for example: `Action: Search[Barack Obama]` or `Action: Finish[yes]`). Do not include extra commentary on the same line. If you want to reason, put it under `Thought:` lines only.
+
+Here are some examples:
+{examples}
+(END OF EXAMPLES)
+
+Question: {question}{scratchpad}"""
+
 REACT_REFLECT_INSTRUCTION = """Solve a question answering task with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
 (1) Search[entity], which searches the exact entity on Wikipedia and returns the first paragraph if it exists. If not, it will return some similar entities to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
@@ -125,7 +139,7 @@ Reflection:"""
 
 react_agent_prompt = PromptTemplate(
                         input_variables=["examples", "question", "scratchpad"],
-                        template = REACT_INSTRUCTION,
+                        template = REACT_INSTRUCTION_STRICT,
                         )
 
 react_reflect_agent_prompt = PromptTemplate(
@@ -136,45 +150,6 @@ react_reflect_agent_prompt = PromptTemplate(
 reflect_prompt = PromptTemplate(
                         input_variables=["examples", "question", "scratchpad"],
                         template = REFLECT_INSTRUCTION,
-                        )
-
-
-# -------------------------
-# PubMed-specific prompts (for PubMedQA experiments)
-# These instruct the agent to base answers strictly on the provided abstract
-# and to produce concise, medically cautious reflections.
-# -------------------------
-PUBMED_COT_INSTRUCTION = """You are a careful medical-reading assistant. Use ONLY the provided Abstract to answer the question. Do NOT use outside knowledge. Think step-by-step, then Finish with a single-word label (yes, no, or maybe) using the exact format Finish[<label>].
-
-Instructions:
-- Base all reasoning solely on the Abstract provided under Relevant Context.
-- Keep reasoning concise and factual; avoid speculation.
-- When producing the final label, use Finish[yes] or Finish[no] or Finish[maybe] exactly.
-
-Here are examples:
-{examples}
-(END OF EXAMPLES)
-
-{reflections}
-Relevant Context: {context}
-Question: {question}{scratchpad}"""
-
-PUBMED_REFLECT_INSTRUCTION = """You are an assistant analyzing a previous attempt at labeling a PubMedQA question. You were given the Abstract and produced a label but may have erred. In 2–4 short sentences, (1) identify any parts of the Abstract you may have misinterpreted or overlooked, and (2) give one concise corrective suggestion that would change the label if appropriate. End with a single-line suggested reasoning summary.
-
-Previous trial:
-Relevant Context: {context}
-Question: {question}{scratchpad}
-
-Reflection:"""
-
-pubmed_agent_prompt = PromptTemplate(
-                        input_variables=["examples", "reflections", "context", "question", "scratchpad"],
-                        template=PUBMED_COT_INSTRUCTION,
-                        )
-
-pubmed_reflect_prompt = PromptTemplate(
-                        input_variables=["context", "question", "scratchpad"],
-                        template=PUBMED_REFLECT_INSTRUCTION,
                         )
 
 
