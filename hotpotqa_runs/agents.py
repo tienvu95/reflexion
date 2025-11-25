@@ -5,17 +5,19 @@ try:
     import tiktoken
 except Exception:
     tiktoken = None
-from langchain.llms.base import BaseLLM
-# from langchain.chat_models import ChatOpenAI
-from langchain.chat_models.base import BaseChatModel
-from langchain.schema import (
-    SystemMessage,
-    HumanMessage,
-    AIMessage,
-)
+try:
+    from langchain.llms.base import BaseLLM
+    from langchain.chat_models.base import BaseChatModel
+    from langchain.schema import (
+        SystemMessage,
+        HumanMessage,
+        AIMessage,
+    )
+except Exception:
+    from langchain_shim import BaseLLM, BaseChatModel, SystemMessage, HumanMessage, AIMessage
 # Docstore integration is optional. We avoid importing heavy langchain docstore
 # modules at top-level to make the module importable when langchain is not installed.
-from langchain.prompts import PromptTemplate
+from prompt_shim import PromptTemplate
 from prompts import reflect_prompt, react_agent_prompt, react_reflect_agent_prompt, REFLECTION_HEADER, LAST_TRIAL_HEADER, REFLECTION_AFTER_LAST_TRIAL_HEADER
 from prompts import cot_agent_prompt, cot_reflect_agent_prompt, cot_reflect_prompt, COT_INSTRUCTION, COT_REFLECT_INSTRUCTION
 from fewshots import WEBTHINK_SIMPLE6, REFLECTIONS, COT, COT_REFLECT
@@ -284,11 +286,10 @@ class ReactReflectAgent(ReactAgent):
                  max_steps: int = 6,
                  agent_prompt: PromptTemplate = react_reflect_agent_prompt,
                  reflect_prompt: PromptTemplate = reflect_prompt,
-                 docstore: Docstore = Wikipedia(),
+                 docstore: Optional[Any] = None,
                  react_llm: Optional[Any] = None,
                  reflect_llm: Optional[Any] = None,
                  ) -> None:
-        
         super().__init__(question, key, max_steps, agent_prompt, docstore, react_llm)
         self.reflect_llm = reflect_llm
         self.reflect_prompt = reflect_prompt

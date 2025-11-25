@@ -1,4 +1,4 @@
-from langchain.prompts import PromptTemplate
+from prompt_shim import PromptTemplate
 
 COT_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task. You will be given context that you should use to help you answer the question.
 Here are some examples:
@@ -173,7 +173,7 @@ pubmed_agent_prompt = PromptTemplate(
                         )
 
 pubmed_reflect_prompt = PromptTemplate(
-                        input_variables=["examples", "context", "question", "scratchpad"],
+                        input_variables=["context", "question", "scratchpad"],
                         template=PUBMED_REFLECT_INSTRUCTION,
                         )
 
