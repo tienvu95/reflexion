@@ -350,6 +350,9 @@ if __name__ == '__main__':
     # Local transformers options
     p.add_argument('--device', default=None, help='Device to load model on (cuda/mps/cpu). If not set, adapter auto-detects')
     p.add_argument('--load-in-4bit', action='store_true', help='Load model in 4-bit using bitsandbytes (requires CUDA + bitsandbytes)')
+    # UnsloTh / long-context options
+    p.add_argument('--use-unsloth', action='store_true', help='Use UnsloTh prequantized models (Colab-friendly)')
+    p.add_argument('--max-seq-length', type=int, default=8192, help='Max sequence length / context window for UnsloTh or long-context models')
     args = p.parse_args()
 
     # normalize limit
