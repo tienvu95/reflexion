@@ -89,23 +89,84 @@ class UnslothLLM:
             # fallthrough to other methods
             pass
 
-        # 2) If model has chat or stream style API, attempt simple calls
+        # 2) If model has chat or stream style API, attempt simple calls. If a direct string
+        #    call fails (some implementations expect token tensors), try tokenizing and
+        #    passing tensors to the API.
+        last_exc = None
         try:
-            # some FastLanguageModel instances implement a `chat` or `generate_text` method
             if hasattr(self.model, 'chat'):
-                out = self.model.chat(prompt)
+                try:
+                    out = self.model.chat(prompt)
+                except Exception as e_chat:
+                    last_exc = e_chat
+                    # try tokenized form
+                    try:
+                        inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=self.max_seq_length)
+                        try:
+                            import torch
+                            device = next(self.model.parameters()).device
+                            inputs = {k: v.to(device) for k, v in inputs.items()}
+                        except Exception:
+                            pass
+                        out = self.model.chat(**inputs)
+                    except Exception as e_chat2:
+                        last_exc = e_chat2
+                        raise
                 if isinstance(out, (list, tuple)):
                     out = out[0]
+                # some chat APIs return dicts with 'generated_text' or similar
+                if isinstance(out, dict):
+                    out = out.get('generated_text') or out.get('text') or next(iter(out.values()), None)
                 return str(out).strip()
+
             if hasattr(self.model, 'generate_text'):
-                out = self.model.generate_text(prompt)
+                try:
+                    out = self.model.generate_text(prompt)
+                except Exception as e_gen:
+                    last_exc = e_gen
+                    try:
+                        inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=self.max_seq_length)
+                        try:
+                            import torch
+                            device = next(self.model.parameters()).device
+                            inputs = {k: v.to(device) for k, v in inputs.items()}
+                        except Exception:
+                            pass
+                        out = self.model.generate_text(**inputs)
+                    except Exception as e_gen2:
+                        last_exc = e_gen2
+                        raise
+                if isinstance(out, (list, tuple)):
+                    out = out[0]
+                if isinstance(out, dict):
+                    out = out.get('generated_text') or out.get('text') or next(iter(out.values()), None)
                 return str(out).strip()
         except Exception:
+            # fall through to next strategies but retain last exception
             pass
 
-        # 3) As a last resort, try to call model on the tokenizer directly (some wrappers offer call)
+        # 3) As a last resort, try calling the model object directly. If that fails when
+        #    given a string, try tokenizing and passing tensors.
         try:
-            out = self.model(prompt)
+            try:
+                out = self.model(prompt)
+            except Exception as e_call:
+                last_exc = e_call
+                inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=self.max_seq_length)
+                try:
+                    import torch
+                    device = next(self.model.parameters()).device
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                except Exception:
+                    pass
+                # try passing token tensors
+                out = self.model(**inputs)
+            if isinstance(out, (list, tuple)):
+                out = out[0]
+            if isinstance(out, dict):
+                out = out.get('generated_text') or out.get('text') or next(iter(out.values()), None)
             return str(out).strip()
         except Exception as e:
+            if last_exc is not None:
+                e = last_exc
             raise RuntimeError(f"UnsloTh model couldn't generate text with any known API: {e}") from e
