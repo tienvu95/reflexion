@@ -1,10 +1,13 @@
 import re, string, os
-from typing import List, Union, Literal
+from typing import List, Union, Literal, Any, Optional
 from enum import Enum
-import tiktoken
-from langchain import OpenAI, Wikipedia
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None
+from langchain import Wikipedia
 from langchain.llms.base import BaseLLM
-from langchain.chat_models import ChatOpenAI
+# from langchain.chat_models import ChatOpenAI
 from langchain.chat_models.base import BaseChatModel
 from langchain.schema import (
     SystemMessage,
@@ -14,7 +17,6 @@ from langchain.schema import (
 from langchain.agents.react.base import DocstoreExplorer
 from langchain.docstore.base import Docstore
 from langchain.prompts import PromptTemplate
-from llm import AnyOpenAILLM
 from prompts import reflect_prompt, react_agent_prompt, react_reflect_agent_prompt, REFLECTION_HEADER, LAST_TRIAL_HEADER, REFLECTION_AFTER_LAST_TRIAL_HEADER
 from prompts import cot_agent_prompt, cot_reflect_agent_prompt, cot_reflect_prompt, COT_INSTRUCTION, COT_REFLECT_INSTRUCTION
 from fewshots import WEBTHINK_SIMPLE6, REFLECTIONS, COT, COT_REFLECT
@@ -42,18 +44,8 @@ class CoTAgent:
                     reflect_prompt: PromptTemplate = cot_reflect_prompt,
                     cot_examples: str = COT,
                     reflect_examples: str = COT_REFLECT,
-                    self_reflect_llm: AnyOpenAILLM = AnyOpenAILLM(
-                                            temperature=0,
-                                            max_tokens=250,
-                                            model_name="gpt-3.5-turbo",
-                                            model_kwargs={"stop": "\n"},
-                                            openai_api_key=os.environ['OPENAI_API_KEY']),
-                    action_llm: AnyOpenAILLM = AnyOpenAILLM(
-                                            temperature=0,
-                                            max_tokens=250,
-                                            model_name="gpt-3.5-turbo",
-                                            model_kwargs={"stop": "\n"},
-                                            openai_api_key=os.environ['OPENAI_API_KEY']),
+                    self_reflect_llm: Optional[Any] = None,
+                    action_llm: Optional[Any] = None,
                     ) -> None:
         self.question = question
         self.context = context
@@ -76,19 +68,18 @@ class CoTAgent:
             self.reflect(reflexion_strategy)
         self.reset()
         self.step()
-        self.step_n += 1
-
-    def step(self) -> None:
-        # Think
-        self.scratchpad += f'\nThought:'
-        self.scratchpad += ' ' + self.prompt_agent()
-        print(self.scratchpad.split('\n')[-1])
-
-        # Act
-        self.scratchpad += f'\nAction:'
-        action = self.prompt_agent()
-        self.scratchpad += ' ' + action
-        action_type, argument = parse_action(action)
+        # If no LLMs provided, try to lazily construct OpenAI wrappers (only if API key available).
+        if self.self_reflect_llm is None or self.action_llm is None:
+            try:
+                from langchain import OpenAI
+                if 'OPENAI_API_KEY' in os.environ:
+                    if self.self_reflect_llm is None:
+                        self.self_reflect_llm = OpenAI(temperature=0, max_tokens=250, model_name="gpt-3.5-turbo", openai_api_key=os.environ['OPENAI_API_KEY'])
+                    if self.action_llm is None:
+                        self.action_llm = OpenAI(temperature=0, max_tokens=250, model_name="gpt-3.5-turbo", openai_api_key=os.environ['OPENAI_API_KEY'])
+            except Exception:
+                # No OpenAI available; leave as None and raise clear errors at call time.
+                pass
         print(self.scratchpad.split('\n')[-1])  
 
         self.scratchpad += f'\nObservation: '
@@ -121,6 +112,8 @@ class CoTAgent:
         print(self.reflections_str)
     
     def prompt_reflection(self) -> str:
+        if self.self_reflect_llm is None:
+            raise RuntimeError("No reflection LLM configured. Pass `self_reflect_llm` (e.g. AnyHFLLM) or set OPENAI_API_KEY for a fallback OpenAI LLM.")
         return format_step(self.self_reflect_llm(self._build_reflection_prompt()))
 
     def reset(self) -> None:
@@ -129,6 +122,8 @@ class CoTAgent:
         self.finished = False
 
     def prompt_agent(self) -> str:
+        if self.action_llm is None:
+            raise RuntimeError("No action LLM configured. Pass `action_llm` (e.g. AnyHFLLM) or set OPENAI_API_KEY for a fallback OpenAI LLM.")
         return format_step(self.action_llm(self._build_agent_prompt()))
     
     def _build_agent_prompt(self) -> str:
@@ -159,12 +154,7 @@ class ReactAgent:
                  max_steps: int = 6,
                  agent_prompt: PromptTemplate = react_agent_prompt,
                  docstore: Docstore = Wikipedia(),
-                 react_llm: AnyOpenAILLM = AnyOpenAILLM(
-                                            temperature=0,
-                                            max_tokens=100,
-                                            model_name="gpt-3.5-turbo",
-                                            model_kwargs={"stop": "\n"},
-                                            openai_api_key=os.environ['OPENAI_API_KEY']),
+                 react_llm: Optional[Any] = None,
                  ) -> None:
         
         self.question = question
@@ -176,8 +166,18 @@ class ReactAgent:
 
         self.docstore = DocstoreExplorer(docstore) # Search, Lookup
         self.llm = react_llm
-        
-        self.enc = tiktoken.encoding_for_model("text-davinci-003")
+
+        # tolerant tokenizer: try tiktoken, otherwise simple whitespace encoder
+        try:
+            if tiktoken is not None:
+                self.enc = tiktoken.encoding_for_model("text-davinci-003")
+            else:
+                raise Exception()
+        except Exception:
+            class _SimpleEnc:
+                def encode(self, s: str):
+                    return s.split()
+            self.enc = _SimpleEnc()
 
         self.__reset_agent()
 
@@ -235,6 +235,8 @@ class ReactAgent:
         self.step_n += 1
 
     def prompt_agent(self) -> str:
+        if self.llm is None:
+            raise RuntimeError("No LLM configured for ReactAgent. Pass `react_llm` (e.g. AnyHFLLM) or set OPENAI_API_KEY for a fallback OpenAI LLM.")
         return format_step(self.llm(self._build_agent_prompt()))
     
     def _build_agent_prompt(self) -> str:
@@ -269,17 +271,8 @@ class ReactReflectAgent(ReactAgent):
                  agent_prompt: PromptTemplate = react_reflect_agent_prompt,
                  reflect_prompt: PromptTemplate = reflect_prompt,
                  docstore: Docstore = Wikipedia(),
-                 react_llm: AnyOpenAILLM = AnyOpenAILLM(
-                                             temperature=0,
-                                             max_tokens=100,
-                                             model_name="gpt-3.5-turbo",
-                                             model_kwargs={"stop": "\n"},
-                                             openai_api_key=os.environ['OPENAI_API_KEY']),
-                 reflect_llm: AnyOpenAILLM = AnyOpenAILLM(
-                                               temperature=0,
-                                               max_tokens=250,
-                                               model_name="gpt-3.5-turbo",
-                                               openai_api_key=os.environ['OPENAI_API_KEY']),
+                 react_llm: Optional[Any] = None,
+                 reflect_llm: Optional[Any] = None,
                  ) -> None:
         
         super().__init__(question, key, max_steps, agent_prompt, docstore, react_llm)
@@ -313,6 +306,8 @@ class ReactReflectAgent(ReactAgent):
         print(self.reflections_str)
     
     def prompt_reflection(self) -> str:
+        if self.reflect_llm is None:
+            raise RuntimeError("No reflection LLM configured for ReactReflectAgent. Pass `reflect_llm` (e.g. AnyHFLLM) or set OPENAI_API_KEY for a fallback OpenAI LLM.")
         return format_step(self.reflect_llm(self._build_reflection_prompt()))
 
 
