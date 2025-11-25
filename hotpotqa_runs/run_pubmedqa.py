@@ -18,8 +18,12 @@ import os
 import sys
 from typing import Tuple, Optional
 
-# Ensure package imports work when running as module or script in this folder
-sys.path.insert(0, os.path.dirname(__file__))
+# Ensure package imports work when running as module or script.
+# Insert the repository root (parent of this file) into sys.path so
+# imports like `hotpotqa_runs.*` resolve when the script is executed directly.
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 # Note: import datasets lazily inside `run()` to avoid hard dependency at import-time
 
