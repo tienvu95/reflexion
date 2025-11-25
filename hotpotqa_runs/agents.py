@@ -69,6 +69,8 @@ class CoTAgent:
             self.reflect(reflexion_strategy)
         self.reset()
         self.step()
+        self.step_n += 1
+
         # If no LLMs provided, try to lazily construct OpenAI wrappers (only if API key available).
         if self.self_reflect_llm is None or self.action_llm is None:
             try:
@@ -81,19 +83,6 @@ class CoTAgent:
             except Exception:
                 # No OpenAI available; leave as None and raise clear errors at call time.
                 pass
-        print(self.scratchpad.split('\n')[-1])  
-
-        self.scratchpad += f'\nObservation: '
-        if action_type == 'Finish':
-            self.answer = argument
-            if self.is_correct():
-                self.scratchpad += 'Answer is CORRECT'
-            else: 
-                self.scratchpad += 'Answer is INCORRECT'
-            self.finished = True
-            return
-        else:
-            print('Invalid action type, please try again.')
     
     def reflect(self,
                 strategy: ReflexionStrategy) -> None:
@@ -118,9 +107,35 @@ class CoTAgent:
         return format_step(self.self_reflect_llm(self._build_reflection_prompt()))
 
     def reset(self) -> None:
-        
         self.scratchpad: str = ''
         self.finished = False
+
+    def step(self) -> None:
+        # Think
+        self.scratchpad += f'\nThought:'
+        self.scratchpad += ' ' + self.prompt_agent()
+        print(self.scratchpad.split('\n')[-1])
+
+        # Act
+        self.scratchpad += f'\nAction:'
+        action = self.prompt_agent()
+        self.scratchpad += ' ' + action
+        print(self.scratchpad.split('\n')[-1])
+
+        action_type, argument = parse_action(action)
+
+        # Observe
+        self.scratchpad += f'\nObservation: '
+        if action_type == 'Finish':
+            self.answer = argument
+            if self.is_correct():
+                self.scratchpad += 'Answer is CORRECT'
+            else:
+                self.scratchpad += 'Answer is INCORRECT'
+            self.finished = True
+            return
+        else:
+            print('Invalid action type, please try again.')
 
     def prompt_agent(self) -> str:
         if self.action_llm is None:
