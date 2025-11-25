@@ -81,6 +81,17 @@ def detect_fields(example: dict) -> Tuple[Optional[str], Optional[str], Optional
 
 def build_llm(args):
     """Instantiate either HF Inference or local Transformers adapter depending on args."""
+    # shared token used for HF authentication when needed
+    token = args.hf_token or os.environ.get('HF_API_TOKEN') or os.environ.get('HUGGINGFACE_API_TOKEN')
+
+    # UnsloTh path (Colab-ready prequantized models)
+    if getattr(args, 'use_unsloth', False):
+        try:
+            from unsloth_llm import UnslothLLM
+        except Exception:
+            from hotpotqa_runs.unsloth_llm import UnslothLLM
+        return UnslothLLM(model_name=args.model, token=token, load_in_4bit=getattr(args, 'load_in_4bit', True), max_seq_length=getattr(args, 'max_seq_length', 8192))
+
     if args.use_transformers:
         # Build a local transformers-backed LLM inline so we can set trust_remote_code
         try:
