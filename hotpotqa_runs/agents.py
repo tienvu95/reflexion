@@ -14,7 +14,12 @@ try:
         AIMessage,
     )
 except Exception:
-    from langchain_shim import BaseLLM, BaseChatModel, SystemMessage, HumanMessage, AIMessage
+    # Try package-aware shim import first (when running as a package/module),
+    # then fall back to top-level shim (when running from repo root).
+    try:
+        from hotpotqa_runs.langchain_shim import BaseLLM, BaseChatModel, SystemMessage, HumanMessage, AIMessage
+    except Exception:
+        from langchain_shim import BaseLLM, BaseChatModel, SystemMessage, HumanMessage, AIMessage
 # Try to import AnyOpenAILLM from the package or top-level fallback.
 try:
     from hotpotqa_runs.llm import AnyOpenAILLM
