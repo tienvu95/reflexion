@@ -139,4 +139,43 @@ reflect_prompt = PromptTemplate(
                         )
 
 
+# -------------------------
+# PubMed-specific prompts (for PubMedQA experiments)
+# These instruct the agent to base answers strictly on the provided abstract
+# and to produce concise, medically cautious reflections.
+# -------------------------
+PUBMED_COT_INSTRUCTION = """You are a careful medical-reading assistant. Use ONLY the provided Abstract to answer the question. Do NOT use outside knowledge. Think step-by-step, then Finish with a single-word label (yes, no, or maybe) using the exact format Finish[<label>].
+
+Instructions:
+- Base all reasoning solely on the Abstract provided under Relevant Context.
+- Keep reasoning concise and factual; avoid speculation.
+- When producing the final label, use Finish[yes] or Finish[no] or Finish[maybe] exactly.
+
+Here are examples:
+{examples}
+(END OF EXAMPLES)
+
+{reflections}
+Relevant Context: {context}
+Question: {question}{scratchpad}"""
+
+PUBMED_REFLECT_INSTRUCTION = """You are an assistant analyzing a previous attempt at labeling a PubMedQA question. You were given the Abstract and produced a label but may have erred. In 2–4 short sentences, (1) identify any parts of the Abstract you may have misinterpreted or overlooked, and (2) give one concise corrective suggestion that would change the label if appropriate. End with a single-line suggested reasoning summary.
+
+Previous trial:
+Relevant Context: {context}
+Question: {question}{scratchpad}
+
+Reflection:"""
+
+pubmed_agent_prompt = PromptTemplate(
+                        input_variables=["examples", "reflections", "context", "question", "scratchpad"],
+                        template=PUBMED_COT_INSTRUCTION,
+                        )
+
+pubmed_reflect_prompt = PromptTemplate(
+                        input_variables=["examples", "context", "question", "scratchpad"],
+                        template=PUBMED_REFLECT_INSTRUCTION,
+                        )
+
+
 
