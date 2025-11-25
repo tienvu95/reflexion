@@ -1,4 +1,10 @@
-from langchain.prompts import PromptTemplate
+try:
+    from langchain.prompts import PromptTemplate
+except Exception:
+    try:
+        from hotpotqa_runs.prompt_shim import PromptTemplate
+    except Exception:
+        from prompt_shim import PromptTemplate
 
 COT_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task. You will be given context that you should use to help you answer the question.
 Here are some examples:
