@@ -266,11 +266,11 @@ def run(args, external_llm=None):
 
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
         if AgentClass is ReactAgent:
-            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps)
+            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps, force_finish_format=getattr(args, 'force_finish_format', False))
         elif AgentClass is CoTAgent:
-            agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm, self_reflect_llm=llm)
+            agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm, self_reflect_llm=llm, force_finish_format=getattr(args, 'force_finish_format', False))
         else:  # ReactReflectAgent
-            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps)
+            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, force_finish_format=getattr(args, 'force_finish_format', False))
 
         try:
             # Dispatch run with optional reflexion strategy when supported
@@ -357,6 +357,7 @@ if __name__ == '__main__':
     # UnsloTh / long-context options
     p.add_argument('--use-unsloth', action='store_true', help='Use UnsloTh prequantized models (Colab-friendly)')
     p.add_argument('--max-seq-length', type=int, default=8192, help='Max sequence length / context window for UnsloTh or long-context models')
+    p.add_argument('--force-finish-format', action='store_true', help='Ask agents to output exactly one Finish[...] action with yes/no/maybe when finishing')
     args = p.parse_args()
 
     # normalize limit

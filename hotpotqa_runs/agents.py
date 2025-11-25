@@ -89,6 +89,7 @@ class CoTAgent:
                     reflect_examples: str = COT_REFLECT,
                     self_reflect_llm: Optional[Any] = None,
                     action_llm: Optional[Any] = None,
+                    force_finish_format: bool = False,
                     ) -> None:
         self.question = question
         self.context = context
@@ -99,6 +100,7 @@ class CoTAgent:
         self.reflect_examples = reflect_examples
         self.self_reflect_llm = self_reflect_llm
         self.action_llm = action_llm
+        self.force_finish_format = force_finish_format
         self.reflections: List[str] = []
         self.reflections_str = ''
         self.answer = ''
@@ -197,6 +199,8 @@ class CoTAgent:
                 return out
             # prepare a short follow-up that requests the correct format
             followup = '\nPlease respond with exactly one `Action:` line in the format Action[<type>[<argument>]] using one of: Search[...], Lookup[...], Finish[...]. Output only that Action line.'
+            if self.force_finish_format:
+                followup = '\nWhen you decide to finish, respond with exactly one `Action:` line in the format Action: Finish[yes] or Action: Finish[no] or Action: Finish[maybe]. Do not output any other text.\n' + followup
             out = format_step(self.action_llm(self._build_agent_prompt() + followup))
             action_type, argument = parse_action(out)
             if action_type is not None:
@@ -234,6 +238,7 @@ class ReactAgent:
                  agent_prompt: PromptTemplate = react_agent_prompt,
                  docstore: Optional[Any] = None,
                  react_llm: Optional[Any] = None,
+                 force_finish_format: bool = False,
                  ) -> None:
         
         self.question = question
@@ -254,6 +259,7 @@ class ReactAgent:
                 # langchain (or DocstoreExplorer) not available; disable docstore features
                 self.docstore = None
         self.llm = react_llm
+        self.force_finish_format = force_finish_format
 
         # tolerant tokenizer: try tiktoken, otherwise simple whitespace encoder
         try:
@@ -342,6 +348,8 @@ class ReactAgent:
             if action_type is not None:
                 return out
             followup = '\nPlease respond with exactly one `Action:` line in the format Action[<type>[<argument>]] using one of: Search[...], Lookup[...], Finish[...]. Output only that Action line.'
+            if self.force_finish_format:
+                followup = '\nWhen you decide to finish, respond with exactly one `Action:` line in the format Action: Finish[yes] or Action: Finish[no] or Action: Finish[maybe]. Do not output any other text.\n' + followup
             out = format_step(self.llm(self._build_agent_prompt() + followup))
             action_type, argument = parse_action(out)
             if action_type is not None:
@@ -383,8 +391,9 @@ class ReactReflectAgent(ReactAgent):
                  docstore: Optional[Any] = None,
                  react_llm: Optional[Any] = None,
                  reflect_llm: Optional[Any] = None,
+                 force_finish_format: bool = False,
                  ) -> None:
-        super().__init__(question, key, max_steps, agent_prompt, docstore, react_llm)
+        super().__init__(question, key, max_steps, agent_prompt, docstore, react_llm, force_finish_format=force_finish_format)
         self.reflect_llm = reflect_llm
         self.reflect_prompt = reflect_prompt
         self.reflect_examples = REFLECTIONS

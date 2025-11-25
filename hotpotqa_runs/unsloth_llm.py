@@ -66,8 +66,13 @@ class UnslothLLM:
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
 
-    def __call__(self, prompt: str) -> str:
+    def __call__(self, prompt: Optional[str] = None, **kwargs) -> str:
+        # Accept either a string `prompt` or token kwargs like `input_ids`/`attention_mask`.
+        # This allows callers that tokenize externally to pass tensors without failing.
         # Try a few generation call styles depending on what the model exposes.
+        # If both `prompt` and kwargs are provided, prefer kwargs for model-forward.
+        if prompt is None and not kwargs:
+            raise RuntimeError('No prompt or token kwargs provided to UnslothLLM.__call__')
         # 1) If model has `generate` like HF models, use it.
         try:
             if hasattr(self.model, 'generate'):
@@ -96,7 +101,11 @@ class UnslothLLM:
         try:
             if hasattr(self.model, 'chat'):
                 try:
-                    out = self.model.chat(prompt)
+                    # if token kwargs passed, forward them to model.chat
+                    if kwargs:
+                        out = self.model.chat(**kwargs)
+                    else:
+                        out = self.model.chat(prompt)
                 except Exception as e_chat:
                     last_exc = e_chat
                     # try tokenized form
@@ -121,7 +130,10 @@ class UnslothLLM:
 
             if hasattr(self.model, 'generate_text'):
                 try:
-                    out = self.model.generate_text(prompt)
+                    if kwargs:
+                        out = self.model.generate_text(**kwargs)
+                    else:
+                        out = self.model.generate_text(prompt)
                 except Exception as e_gen:
                     last_exc = e_gen
                     try:
@@ -149,18 +161,31 @@ class UnslothLLM:
         #    given a string, try tokenizing and passing tensors.
         try:
             try:
-                out = self.model(prompt)
+                if kwargs:
+                    out = self.model(**kwargs)
+                elif prompt is not None:
+                    out = self.model(prompt)
+                else:
+                    inputs = self.tokenizer('', return_tensors='pt', truncation=True, max_length=self.max_seq_length)
+                    try:
+                        import torch
+                        device = next(self.model.parameters()).device
+                        inputs = {k: v.to(device) for k, v in inputs.items()}
+                    except Exception:
+                        pass
+                    out = self.model(**inputs)
             except Exception as e_call:
                 last_exc = e_call
-                inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=self.max_seq_length)
-                try:
-                    import torch
-                    device = next(self.model.parameters()).device
-                    inputs = {k: v.to(device) for k, v in inputs.items()}
-                except Exception:
-                    pass
-                # try passing token tensors
-                out = self.model(**inputs)
+                # try tokenizing the prompt and forwarding tensors
+                if prompt is not None:
+                    inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=self.max_seq_length)
+                    try:
+                        import torch
+                        device = next(self.model.parameters()).device
+                        inputs = {k: v.to(device) for k, v in inputs.items()}
+                    except Exception:
+                        pass
+                    out = self.model(**inputs)
             if isinstance(out, (list, tuple)):
                 out = out[0]
             if isinstance(out, dict):
