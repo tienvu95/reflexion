@@ -6,31 +6,31 @@ except Exception:
     except Exception:
         from prompt_shim import PromptTemplate
 
-COT_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task. You will be given context that you should use to help you answer the question.
+COT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
 {reflections}
-Relevant Context: {context} 
+Relevant PubMed Context: {context} 
 Question: {question}{scratchpad}"""
 
-COT_AGENT_REFLECT_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task. You will be given context that you should use to help you answer the question.
+COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
 
 {reflections}
 
-Relevant Context: {context}
+Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
 
-COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self refection. You will be given a previous reasoning trial in which you were given access to relevant context and a question to answer. You were unsuccessful in answering the question either because you guessed the wrong answer with Finish[<answer>] or there is a phrasing discrepancy with your provided answer and the answer key. In a few sentences, Diagnose a possible reason for failure or phrasing discrepancy and devise a new, concise, high level plan that aims to mitigate the same failure. Use complete sentences.  
+COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure. Use complete sentences.  
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
 
 Previous trial:
-Relevant Context: {context}
+Relevant PubMed Context: {context}
 Question: {question}{scratchpad}
 
 Reflection:"""
@@ -50,28 +50,28 @@ cot_reflect_prompt = PromptTemplate(
                         template = COT_REFLECT_INSTRUCTION,
                         )
 
-COT_SIMPLE_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task.
+COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
 {reflections}
-{context}
+Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Solve a question answering task by having a Thought, then Finish with your answer. Thought can reason about the current situation. Finish[answer] returns the answer and finishes the task.
+COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
-{context}
+Relevant PubMed Context: {context}
 {reflections}
 
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self refection. You will be given a previous reasoning trial in which you were given a question to answer. You were unsuccessful in answering the question either because you guessed the wrong answer with Finish[<answer>] or there is a phrasing discrepancy with your provided answer and the answer key. In a few sentences, Diagnose a possible reason for failure or phrasing discrepancy and devise a new, concise, high level plan that aims to mitigate the same failure. Use complete sentences.
+COT_SIMPLE_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial with a biomedical abstract and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose the failure and propose a concise plan that explains how to better use the PubMed context to arrive at the correct yes/no/maybe answer.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
-{context}
+Relevant PubMed Context: {context}
 Previous trial:
 Question: {question}{scratchpad}
 
@@ -93,23 +93,24 @@ cot_simple_reflect_prompt = PromptTemplate(
                         )
 
 
-REACT_INSTRUCTION = """Solve a question answering task with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
-(1) Search[entity], which searches the exact entity on Wikipedia and returns the first paragraph if it exists. If not, it will return some similar entities to search.
+REACT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
+(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
 (3) Finish[answer], which returns the answer and finishes the task.
-You may take as many steps as necessary.
+You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
 Question: {question}{scratchpad}"""
 
 # Stronger instruction variant that enforces Action formatting strictly
-REACT_INSTRUCTION_STRICT = """Solve a question answering task with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
-(1) Search[entity], which searches the exact entity on Wikipedia and returns the first paragraph if it exists. If not, it will return some similar entities to search.
+REACT_INSTRUCTION_STRICT = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
+(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
 (3) Finish[answer], which returns the answer and finishes the task.
 
 IMPORTANT: When you output an Action, OUTPUT EXACTLY one line that begins with `Action:` followed by one of the three action forms above (for example: `Action: Search[Barack Obama]` or `Action: Finish[yes]`). Do not include extra commentary on the same line. If you want to reason, put it under `Thought:` lines only.
+Only finish with the labels yes, no, or maybe.
 
 Here are some examples:
 {examples}
@@ -117,11 +118,11 @@ Here are some examples:
 
 Question: {question}{scratchpad}"""
 
-REACT_REFLECT_INSTRUCTION = """Solve a question answering task with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
-(1) Search[entity], which searches the exact entity on Wikipedia and returns the first paragraph if it exists. If not, it will return some similar entities to search.
+REACT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
+(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
 (3) Finish[answer], which returns the answer and finishes the task.
-You may take as many steps as necessary.
+You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -134,7 +135,7 @@ REFLECTION_HEADER = 'You have attempted to answer following question before and 
 REFLECTION_AFTER_LAST_TRIAL_HEADER = 'The following reflection(s) give a plan to avoid failing to answer the question in the same way you did previously. Use them to improve your strategy of correctly answering the given question.\n'
 LAST_TRIAL_HEADER = 'You have attempted to answer the following question before and failed. Below is the last trial you attempted to answer the question.\n'
 
-REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self refection. You will be given a previous reasoning trial in which you were given access to an Docstore API environment and a question to answer. You were unsuccessful in answering the question either because you guessed the wrong answer with Finish[<answer>], or you used up your set number of reasoning steps. In a few sentences, Diagnose a possible reason for failure and devise a new, concise, high level plan that aims to mitigate the same failure. Use complete sentences.  
+REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you had access to a biomedical docstore (PubMed context or Wikipedia fallback) and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or exhausted your reasoning steps. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the biomedical evidence that mitigates the same failure. Use complete sentences.  
 Here are some examples:
 {examples}
 
@@ -157,6 +158,5 @@ reflect_prompt = PromptTemplate(
                         input_variables=["examples", "question", "scratchpad"],
                         template = REFLECT_INSTRUCTION,
                         )
-
 
 

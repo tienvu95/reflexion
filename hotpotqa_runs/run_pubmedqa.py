@@ -235,54 +235,105 @@ def run(args, external_llm=None):
         return
 
     # instantiate llm (or use a pre-initialized one when provided)
+    # We expose two names: `llm_callable` (what agents should call) and
+    # `llm_raw` (the underlying model/tokenizer object when available) so
+    # we can compute log-probabilities / confidences when supported.
     if external_llm is not None:
-        # Wrap external LLM in a safe callable that accepts either a prompt string
-        # or token kwargs (e.g., input_ids) and normalizes outputs to string.
-        def make_safe_llm(l):
-            def _call(prompt: Optional[str] = None, **kwargs):
+        # Wrap external LLM in a safe proxy object that is callable and
+        # attempts to expose `.model` and `.tokenizer` attributes when available.
+        class _ProxyLLM:
+            def __init__(self, raw):
+                self._raw = raw
+                # expose model/tokenizer if present on the raw adapter
+                self.model = getattr(raw, 'model', None)
+                self.tokenizer = getattr(raw, 'tokenizer', None)
+
+            def __call__(self, prompt: Optional[str] = None, **kwargs):
+                l = self._raw
                 try:
-                    # If caller passed token tensors, forward them directly
                     if kwargs:
                         out = l(**kwargs)
                     else:
                         out = l(prompt)
-                except TypeError as e:
-                    # Some models raise TypeError when receiving unsupported kwargs
-                    # Try common alternative call patterns
-                    try:
-                        if prompt is not None and hasattr(l, 'chat'):
-                            out = l.chat(prompt)
-                        elif prompt is not None and hasattr(l, 'generate_text'):
-                            out = l.generate_text(prompt)
+                except TypeError:
+                    # Try alternate call patterns used by some adapters
+                    if prompt is not None and hasattr(l, 'chat'):
+                        out = l.chat(prompt)
+                    elif prompt is not None and hasattr(l, 'generate_text'):
+                        out = l.generate_text(prompt)
+                    else:
+                        tok = getattr(l, 'tokenizer', None)
+                        if tok is not None and prompt is not None:
+                            inputs = tok(prompt, return_tensors='pt', truncation=True, max_length=getattr(args, 'max_seq_length', 8192))
+                            try:
+                                import torch
+                                device = next(l.parameters()).device
+                                inputs = {k: v.to(device) for k, v in inputs.items()}
+                            except Exception:
+                                pass
+                            out = l(**inputs)
                         else:
-                            # try tokenizing if tokenizer available
-                            tok = getattr(l, 'tokenizer', None)
-                            if tok is not None and prompt is not None:
-                                inputs = tok(prompt, return_tensors='pt', truncation=True, max_length=getattr(args, 'max_seq_length', 8192))
-                                try:
-                                    import torch
-                                    device = next(l.parameters()).device
-                                    inputs = {k: v.to(device) for k, v in inputs.items()}
-                                except Exception:
-                                    pass
-                                out = l(**inputs)
-                            else:
-                                raise
-                    except Exception:
-                        raise
+                            raise
+
                 # normalize output shapes
                 if isinstance(out, (list, tuple)):
                     out = out[0]
                 if isinstance(out, dict):
                     out = out.get('generated_text') or out.get('text') or next(iter(out.values()), None)
                 return '' if out is None else str(out)
-            return _call
 
-        llm = make_safe_llm(external_llm)
+        llm_callable = _ProxyLLM(external_llm)
+        # Prefer using the proxy as raw for scoring if it exposes model/tokenizer
+        llm_raw = llm_callable if (getattr(llm_callable, 'model', None) is not None and getattr(llm_callable, 'tokenizer', None) is not None) else external_llm
         print('Using externally provided LLM instance (wrapped)')
     else:
-        llm = build_llm(args)
-        print('LLM instantiated:', llm)
+        llm_raw = build_llm(args)
+        llm_callable = llm_raw
+        print('LLM instantiated:', llm_raw)
+
+    # Helper: compute relative probabilities for the discrete choices using
+    # an underlying transformers-style model+tokenizer when available. Returns
+    # a dict mapping choice->prob or None when scoring is not supported.
+    def _score_choices_via_transformers(raw_llm, prompt: str, choices):
+        try:
+            # prefer explicit .model and .tokenizer attributes
+            model = getattr(raw_llm, 'model', None)
+            tokenizer = getattr(raw_llm, 'tokenizer', None)
+            if model is None or tokenizer is None:
+                return None
+            import torch
+            import math
+            import torch.nn.functional as F
+
+            device = next(model.parameters()).device
+            logls = []
+            for choice in choices:
+                full = prompt + choice
+                inputs = tokenizer(full, return_tensors='pt')
+                # move to device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    outputs = model(**inputs, return_dict=True)
+                    logits = outputs.logits  # (1, L, V)
+                ids = inputs['input_ids'][0]
+                # tokenized prompt length
+                prompt_ids = tokenizer(prompt, return_tensors='pt')['input_ids'][0]
+                start = len(prompt_ids)
+                # sum log-prob of choice tokens (causal LM alignment)
+                log_lik = 0.0
+                for j in range(start, len(ids)):
+                    # logits at position j-1 predict token j
+                    logp = F.log_softmax(logits[0, j-1], dim=-1)[ids[j]].item()
+                    log_lik += logp
+                logls.append(log_lik)
+            # normalize to probabilities with softmax in log-space
+            m = max(logls)
+            exps = [math.exp(l - m) for l in logls]
+            s = sum(exps)
+            probs = [e / s for e in exps]
+            return dict(zip(choices, probs))
+        except Exception:
+            return None
 
     # Try to configure a Wikipedia docstore for ReactAgent if LangChain is available.
     # If unavailable, docstore remains None and agents will fallback to their existing behavior.
@@ -407,24 +458,36 @@ def run(args, external_llm=None):
         # still return meaningful text.
         doc_for_agent = docstore if docstore is not None else SimpleDocstore({'context': context})
         if AgentClass is ReactAgent:
-            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = ReactAgent(question=question, key=true_answer, react_llm=llm_callable, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
         elif AgentClass is CoTAgent:
-            agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm, self_reflect_llm=llm, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm_callable, self_reflect_llm=llm_callable, force_finish_format=getattr(args, 'force_finish_format', False))
         else:  # ReactReflectAgent
-            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm_callable, reflect_llm=llm_callable, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
 
-        # Defensive: clear the agent's few-shot examples so it doesn't inject
-        # unrelated example questions into the prompt. This keeps the model's
-        # generated reasoning focused on the current question/context only.
+        # Defensive: clear the agent's few-shot examples when running open-domain
+        # tasks so the prompt only contains the current sample. For PubMedQA we
+        # want to keep biomedical few-shots, so skip clearing when the dataset
+        # name indicates PubMedQA or when the caller explicitly requests to keep
+        # the examples (keep_fewshot_examples=True).
+        should_clear_examples = True
         try:
-            if hasattr(agent, 'react_examples'):
-                agent.react_examples = ''
-            if hasattr(agent, 'cot_examples'):
-                agent.cot_examples = ''
-            if hasattr(agent, 'reflect_examples'):
-                agent.reflect_examples = ''
+            dataset_name = (getattr(args, 'dataset', '') or '').lower()
+            if 'pubmedqa' in dataset_name:
+                should_clear_examples = False
         except Exception:
-            pass
+            should_clear_examples = True
+        if getattr(args, 'keep_fewshot_examples', False):
+            should_clear_examples = False
+        if should_clear_examples:
+            try:
+                if hasattr(agent, 'react_examples'):
+                    agent.react_examples = ''
+                if hasattr(agent, 'cot_examples'):
+                    agent.cot_examples = ''
+                if hasattr(agent, 'reflect_examples'):
+                    agent.reflect_examples = ''
+            except Exception:
+                pass
 
         # Force-attach a SimpleDocstore fallback so agent.docstore is never None.
         # This guarantees Search/Lookup actions have a minimal implementation
@@ -499,7 +562,60 @@ def run(args, external_llm=None):
         except Exception as e:
             print(f"Error while running agent on example {i}: {e}")
 
+        # After the first run, try to evaluate the model's confidence on the
+        # discrete choices (yes/no/maybe) using logits when the underlying
+        # transformers model+tokenizer is available. If confidence is low,
+        # attempt reflexion (if supported) and rerun to improve confidence.
         pred = getattr(agent, 'answer', '')
+        try:
+            max_attempts = getattr(args, 'max_reflect_attempts', 2)
+            attempts = 0
+            # previous confidence baseline
+            prev_conf = -1.0
+            while attempts < max_attempts:
+                # build a scoring prompt from the agent if possible
+                scoring_prompt = None
+                try:
+                    if hasattr(agent, '_build_agent_prompt'):
+                        scoring_prompt = agent._build_agent_prompt()
+                except Exception:
+                    scoring_prompt = None
+
+                confs = None
+                if scoring_prompt is not None:
+                    confs = _score_choices_via_transformers(llm_raw, scoring_prompt, ['yes', 'no', 'maybe'])
+                if confs is None:
+                    # scoring not available; break out
+                    break
+
+                # coerce current prediction to canonical label
+                cur_label = coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', ''))
+                cur_conf = float(confs.get(cur_label, 0.0))
+                print(f'Confidence for prediction "{cur_label}" = {cur_conf:.4f} (choices: {confs})')
+
+                # If confidence is acceptable, stop retrying
+                threshold = getattr(args, 'confidence_threshold', 0.6)
+                if cur_conf >= threshold or cur_conf > prev_conf:
+                    break
+
+                # otherwise attempt one reflexion and rerun
+                if hasattr(agent, 'reflect'):
+                    try:
+                        strat = map_reflexion_str(args.reflexion_strategy)
+                        agent.reflect(strat)
+                        # rerun without resetting to preserve context/scratchpad
+                        agent.run(reset=False)
+                        pred = getattr(agent, 'answer', '')
+                    except Exception as e:
+                        print('Reflection attempt failed:', e)
+                        break
+                else:
+                    break
+
+                prev_conf = cur_conf
+                attempts += 1
+        except Exception:
+            pass
         # Some agents may leave answer empty; try to extract Finish[...] from scratchpad
         if not pred:
             # look for Finish[...] pattern in scratchpad
@@ -513,6 +629,14 @@ def run(args, external_llm=None):
                 lines = s.split('\n')
                 if len(lines) > 0:
                     pred = lines[-1].strip()
+
+        # Canonicalize prediction to yes/no/maybe so downstream evaluation and
+        # logging are consistent even if the model emitted extra prose.
+        pred = coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', ''))
+        try:
+            agent.answer = pred
+        except Exception:
+            pass
 
         is_correct = False
         try:
@@ -571,6 +695,9 @@ if __name__ == '__main__':
     p.add_argument('--use-unsloth', action='store_true', help='Use UnsloTh prequantized models (Colab-friendly)')
     p.add_argument('--max-seq-length', type=int, default=8192, help='Max sequence length / context window for UnsloTh or long-context models')
     p.add_argument('--force-finish-format', action='store_true', help='Ask agents to output exactly one Finish[...] action with yes/no/maybe when finishing')
+    p.add_argument('--confidence-threshold', type=float, default=0.6, help='Confidence threshold (0..1) to accept yes/no/maybe without further reflexion')
+    p.add_argument('--max-reflect-attempts', type=int, default=2, help='Maximum number of reflexion+retry attempts when confidence is low')
+    p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
     args = p.parse_args()
 
     # normalize limit
