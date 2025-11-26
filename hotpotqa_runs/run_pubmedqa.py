@@ -293,7 +293,10 @@ def run(args, external_llm=None):
         # with DocstoreExplorer if LangChain is available. Avoid double-wrapping
         # by creating the raw Wikipedia object here.
         docstore = Wikipedia()
-        print('Configured Wikipedia source for ReactAgent (will be wrapped)')
+        try:
+            print('Configured Wikipedia source for ReactAgent (will be wrapped).', 'docstore repr:', repr(docstore))
+        except Exception:
+            print('Configured Wikipedia source for ReactAgent (will be wrapped).')
     except Exception:
         docstore = None
 

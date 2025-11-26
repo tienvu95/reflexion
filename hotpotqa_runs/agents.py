@@ -316,23 +316,61 @@ class ReactAgent:
             return
 
         if action_type == 'Search':
-            if self.docstore is None:
-                self.scratchpad += ' [No docstore configured]' 
-            else:
-                try:
-                    self.scratchpad += format_step(self.docstore.search(argument))
-                except Exception as e:
-                    print(e)
-                    self.scratchpad += f'Could not find that page, please try again.'
+            # Debug: report docstore presence and type
+            try:
+                if self.docstore is None:
+                    print('DEBUG: ReactAgent.step - docstore is None when handling Search[{}]'.format(argument))
+                    self.scratchpad += ' [No docstore configured]'
+                else:
+                    try:
+                        print('DEBUG: ReactAgent.step - calling docstore.search; docstore type:', type(self.docstore))
+                    except Exception:
+                        pass
+                    try:
+                        self.scratchpad += format_step(self.docstore.search(argument))
+                    except Exception as e:
+                        import traceback
+                        print('DEBUG: docstore.search raised exception:')
+                        traceback.print_exc()
+                        self.scratchpad += f'Could not find that page, please try again.'
+            except Exception:
+                # Defensive: ensure agent still continues even if debug printing fails
+                if self.docstore is None:
+                    self.scratchpad += ' [No docstore configured]'
+                else:
+                    try:
+                        self.scratchpad += format_step(self.docstore.search(argument))
+                    except Exception:
+                        self.scratchpad += f'Could not find that page, please try again.'
             
         elif action_type == 'Lookup':
-            if self.docstore is None:
-                self.scratchpad += ' [No docstore configured] '
-            else:
-                try:
-                    self.scratchpad += format_step(self.docstore.lookup(argument))
-                except ValueError:
-                    self.scratchpad += f'The last page Searched was not found, so you cannot Lookup a keyword in it. Please try one of the similar pages given.'
+            try:
+                if self.docstore is None:
+                    print('DEBUG: ReactAgent.step - docstore is None when handling Lookup[{}]'.format(argument))
+                    self.scratchpad += ' [No docstore configured] '
+                else:
+                    try:
+                        print('DEBUG: ReactAgent.step - calling docstore.lookup; docstore type:', type(self.docstore))
+                    except Exception:
+                        pass
+                    try:
+                        self.scratchpad += format_step(self.docstore.lookup(argument))
+                    except ValueError:
+                        self.scratchpad += f'The last page Searched was not found, so you cannot Lookup a keyword in it. Please try one of the similar pages given.'
+                    except Exception:
+                        import traceback
+                        print('DEBUG: docstore.lookup raised exception:')
+                        traceback.print_exc()
+                        self.scratchpad += f'Could not lookup that term in the last page.'
+            except Exception:
+                # Defensive
+                if self.docstore is None:
+                    self.scratchpad += ' [No docstore configured] '
+                else:
+                    try:
+                        self.scratchpad += format_step(self.docstore.lookup(argument))
+                    except Exception:
+                        self.scratchpad += f'Could not lookup that term in the last page.'
 
         else:
             self.scratchpad += 'Invalid Action. Valid Actions are Lookup[<topic>] Search[<topic>] and Finish[<answer>].'
