@@ -236,11 +236,109 @@ def run(args, external_llm=None):
 
     # instantiate llm (or use a pre-initialized one when provided)
     if external_llm is not None:
-        llm = external_llm
-        print('Using externally provided LLM instance')
+        # Wrap external LLM in a safe callable that accepts either a prompt string
+        # or token kwargs (e.g., input_ids) and normalizes outputs to string.
+        def make_safe_llm(l):
+            def _call(prompt: Optional[str] = None, **kwargs):
+                try:
+                    # If caller passed token tensors, forward them directly
+                    if kwargs:
+                        out = l(**kwargs)
+                    else:
+                        out = l(prompt)
+                except TypeError as e:
+                    # Some models raise TypeError when receiving unsupported kwargs
+                    # Try common alternative call patterns
+                    try:
+                        if prompt is not None and hasattr(l, 'chat'):
+                            out = l.chat(prompt)
+                        elif prompt is not None and hasattr(l, 'generate_text'):
+                            out = l.generate_text(prompt)
+                        else:
+                            # try tokenizing if tokenizer available
+                            tok = getattr(l, 'tokenizer', None)
+                            if tok is not None and prompt is not None:
+                                inputs = tok(prompt, return_tensors='pt', truncation=True, max_length=getattr(args, 'max_seq_length', 8192))
+                                try:
+                                    import torch
+                                    device = next(l.parameters()).device
+                                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                                except Exception:
+                                    pass
+                                out = l(**inputs)
+                            else:
+                                raise
+                    except Exception:
+                        raise
+                # normalize output shapes
+                if isinstance(out, (list, tuple)):
+                    out = out[0]
+                if isinstance(out, dict):
+                    out = out.get('generated_text') or out.get('text') or next(iter(out.values()), None)
+                return '' if out is None else str(out)
+            return _call
+
+        llm = make_safe_llm(external_llm)
+        print('Using externally provided LLM instance (wrapped)')
     else:
         llm = build_llm(args)
         print('LLM instantiated:', llm)
+
+    # Try to configure a Wikipedia docstore for ReactAgent if LangChain is available.
+    # If unavailable, docstore remains None and agents will fallback to their existing behavior.
+    docstore = None
+    try:
+        from langchain import Wikipedia
+        from langchain.agents.react.base import DocstoreExplorer
+        docstore = DocstoreExplorer(Wikipedia())
+        print('Configured Wikipedia Docstore for ReactAgent')
+    except Exception:
+        docstore = None
+
+    def coerce_yes_no_maybe(pred_text: str, scratchpad: str) -> str:
+        """Map a model output to 'yes'/'no'/'maybe' using heuristics and scratchpad search.
+
+        Priority: explicit Finish[...] in scratchpad, then keyword heuristics on pred_text,
+        then fallback to 'maybe'.
+        """
+        if pred_text is None:
+            return 'maybe'
+        s = pred_text.strip().lower()
+        # 1) Check scratchpad for explicit Finish[...] occurrences
+        import re
+        m = re.search(r'finish\[([^\]]+)\]', scratchpad, flags=re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().lower()
+            if val in ('yes', 'y', 'true', '1'):
+                return 'yes'
+            if val in ('no', 'n', 'false', '0'):
+                return 'no'
+            if 'maybe' in val or 'possibly' in val or 'could' in val or 'likely' in val:
+                return 'maybe'
+            # If scratchpad contains other freeform text, try to detect affirmation/negation
+            if any(tok in val for tok in ('yes','no','maybe','likely','possibly','uncertain','not')):
+                if 'no' in val or 'not' in val or 'none' in val or 'absent' in val:
+                    return 'no'
+                if 'yes' in val or 'present' in val or 'found' in val:
+                    return 'yes'
+
+        # 2) Heuristic on pred_text
+        if any(tok in s for tok in (' yes ', ' yes', 'yes.', 'yes\n', ' yes\'')) or s in ('yes','y','true'):
+            return 'yes'
+        if any(tok in s for tok in (' no ', ' no', 'no.', 'no\n')) or s in ('no','n','false'):
+            return 'no'
+        if any(tok in s for tok in ('maybe','possibly','could','likely','uncertain','unsure','unclear')):
+            return 'maybe'
+
+        # 3) As a last resort, look for polarity words
+        yes_words = ('affirmative','positive','present','found','detected')
+        no_words = ('absent','negative','not detected','none','no evidence')
+        if any(w in s for w in yes_words):
+            return 'yes'
+        if any(w in s for w in no_words):
+            return 'no'
+
+        return 'maybe'
 
     # Choose agent type: use ReactAgent as default
     if args.agent == 'react':
@@ -266,11 +364,11 @@ def run(args, external_llm=None):
 
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
         if AgentClass is ReactAgent:
-            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps, docstore=docstore, force_finish_format=getattr(args, 'force_finish_format', False))
         elif AgentClass is CoTAgent:
             agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm, self_reflect_llm=llm, force_finish_format=getattr(args, 'force_finish_format', False))
         else:  # ReactReflectAgent
-            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, docstore=docstore, force_finish_format=getattr(args, 'force_finish_format', False))
 
         try:
             # Dispatch run with optional reflexion strategy when supported
