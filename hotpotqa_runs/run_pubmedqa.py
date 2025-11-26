@@ -413,6 +413,46 @@ def run(args, external_llm=None):
         else:  # ReactReflectAgent
             agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
 
+        # Defensive: clear the agent's few-shot examples so it doesn't inject
+        # unrelated example questions into the prompt. This keeps the model's
+        # generated reasoning focused on the current question/context only.
+        try:
+            if hasattr(agent, 'react_examples'):
+                agent.react_examples = ''
+            if hasattr(agent, 'cot_examples'):
+                agent.cot_examples = ''
+            if hasattr(agent, 'reflect_examples'):
+                agent.reflect_examples = ''
+        except Exception:
+            pass
+
+        # Force-attach a SimpleDocstore fallback so agent.docstore is never None.
+        # This guarantees Search/Lookup actions have a minimal implementation
+        # (search/lookup over the example `context`) even when LangChain/Wikipedia
+        # are unavailable or agent wrapping failed.
+        try:
+            fallback_ds = SimpleDocstore({'context': context})
+            if getattr(agent, 'docstore', None) is None:
+                try:
+                    agent.docstore = fallback_ds
+                    print(f'Notice: Attached SimpleDocstore fallback to agent for example {i}')
+                except Exception:
+                    # best-effort: if the agent doesn't allow setting `.docstore`,
+                    # try storing on a private attribute used by our debug prints
+                    try:
+                        setattr(agent, '_simple_docstore_fallback', fallback_ds)
+                        print(f'Notice: Stored SimpleDocstore fallback on agent._simple_docstore_fallback for example {i}')
+                    except Exception:
+                        print('Warning: Could not attach SimpleDocstore fallback to agent')
+            else:
+                # Agent already had a docstore (e.g., Wikipedia). Print its type.
+                try:
+                    print('Agent already has a docstore of type:', type(agent.docstore))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         try:
             # Dispatch run with optional reflexion strategy when supported
             # Debug: report whether the agent has a docstore configured
