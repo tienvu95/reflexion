@@ -300,6 +300,40 @@ def run(args, external_llm=None):
     except Exception:
         docstore = None
 
+    # Simple fallback docstore that exposes .search() and .lookup() using the
+    # example's `context` text. This ensures ReactAgent can at least Search/Lookup
+    # within the provided context when LangChain/Wikipedia is not available.
+    class SimpleDocstore:
+        def __init__(self, docs: dict):
+            # docs: id -> text
+            self.docs = docs
+            self._last_doc_id = None
+
+        def search(self, query: str) -> str:
+            # naive search: return the first doc containing the query or the
+            # full text of the single context if nothing matches.
+            q = (query or '').lower()
+            for doc_id, text in self.docs.items():
+                if q in doc_id.lower() or q in text.lower():
+                    self._last_doc_id = doc_id
+                    return text
+            # fallback: return concatenation of all docs
+            if len(self.docs) > 0:
+                # pick first doc
+                did = next(iter(self.docs.keys()))
+                self._last_doc_id = did
+                return self.docs[did]
+            return 'No documents available.'
+
+        def lookup(self, term: str) -> str:
+            if self._last_doc_id is None:
+                raise ValueError('No last page searched.')
+            text = self.docs.get(self._last_doc_id, '')
+            for sent in text.split('.'):
+                if term.lower() in sent.lower():
+                    return sent.strip()
+            return 'Term not found in last page.'
+
     def coerce_yes_no_maybe(pred_text: str, scratchpad: str) -> str:
         """Map a model output to 'yes'/'no'/'maybe' using heuristics and scratchpad search.
 
@@ -368,12 +402,16 @@ def run(args, external_llm=None):
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
 
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
+        # If a global LangChain Wikipedia docstore is not configured, create a
+        # per-example SimpleDocstore using the example `context` so Search/Lookup
+        # still return meaningful text.
+        doc_for_agent = docstore if docstore is not None else SimpleDocstore({'context': context})
         if AgentClass is ReactAgent:
-            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps, docstore=docstore, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = ReactAgent(question=question, key=true_answer, react_llm=llm, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
         elif AgentClass is CoTAgent:
             agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm, self_reflect_llm=llm, force_finish_format=getattr(args, 'force_finish_format', False))
         else:  # ReactReflectAgent
-            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, docstore=docstore, force_finish_format=getattr(args, 'force_finish_format', False))
+            agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm, reflect_llm=llm, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
 
         try:
             # Dispatch run with optional reflexion strategy when supported
@@ -383,6 +421,32 @@ def run(args, external_llm=None):
                 print(f'Agent docstore configured: {has_doc}')
             except Exception:
                 pass
+            # Additional debug: print the inputs provided to the agent/LLM
+            try:
+                print('\n==== DEBUG: Inputs passed to agent for example {} ===='.format(i))
+                print('Question:', question)
+                if context is not None:
+                    ctx_snip = (context[:1000] + '...') if len(context) > 1000 else context
+                    print('Context (truncated 1000 chars):', ctx_snip)
+                else:
+                    print('Context: <None>')
+                print('True/Label Answer:', true_answer)
+                try:
+                    print('doc_for_agent repr:', repr(doc_for_agent))
+                except Exception:
+                    print('doc_for_agent repr: <unprintable>')
+                # If the agent exposes a prompt builder, try to print the initial prompt
+                try:
+                    if hasattr(agent, '_build_agent_prompt'):
+                        built = agent._build_agent_prompt()
+                        print('\n--- Built agent prompt (initial) ---')
+                        print(built)
+                        print('--- End prompt ---\n')
+                except Exception as e:
+                    print('Could not build/print agent prompt:', type(e), e)
+            except Exception:
+                import traceback
+                traceback.print_exc()
             if isinstance(agent, CoTAgent):
                 # map string to ReflexionStrategy
                 strat = map_reflexion_str(args.reflexion_strategy)
