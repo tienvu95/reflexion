@@ -289,9 +289,11 @@ def run(args, external_llm=None):
     docstore = None
     try:
         from langchain import Wikipedia
-        from langchain.agents.react.base import DocstoreExplorer
-        docstore = DocstoreExplorer(Wikipedia())
-        print('Configured Wikipedia Docstore for ReactAgent')
+        # Pass the Wikipedia instance into ReactAgent; ReactAgent will wrap it
+        # with DocstoreExplorer if LangChain is available. Avoid double-wrapping
+        # by creating the raw Wikipedia object here.
+        docstore = Wikipedia()
+        print('Configured Wikipedia source for ReactAgent (will be wrapped)')
     except Exception:
         docstore = None
 
@@ -372,6 +374,12 @@ def run(args, external_llm=None):
 
         try:
             # Dispatch run with optional reflexion strategy when supported
+            # Debug: report whether the agent has a docstore configured
+            try:
+                has_doc = getattr(agent, 'docstore', None) is not None
+                print(f'Agent docstore configured: {has_doc}')
+            except Exception:
+                pass
             if isinstance(agent, CoTAgent):
                 # map string to ReflexionStrategy
                 strat = map_reflexion_str(args.reflexion_strategy)
