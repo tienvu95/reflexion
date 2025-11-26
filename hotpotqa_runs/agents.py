@@ -256,8 +256,15 @@ class ReactAgent:
                 from langchain.agents.react.base import DocstoreExplorer
                 self.docstore = DocstoreExplorer(docstore)
             except Exception:
-                # langchain (or DocstoreExplorer) not available; disable docstore features
-                self.docstore = None
+                # LangChain wrapping failed — fall back to using provided docstore
+                # directly (as long as it implements .search() and .lookup()).
+                try:
+                    import traceback
+                    print('Warning: DocstoreExplorer wrapping failed, falling back to provided docstore. Exception:')
+                    traceback.print_exc()
+                except Exception:
+                    pass
+                self.docstore = docstore
         self.llm = react_llm
         self.force_finish_format = force_finish_format
 
