@@ -16,7 +16,7 @@ import argparse
 import csv
 import os
 import sys
-from typing import Tuple, Optional
+from typing import Optional
 
 # Ensure package imports work when running as module or script.
 # Insert the repository root (parent of this file) into sys.path so
@@ -59,28 +59,6 @@ def map_reflexion_str(s: Optional[str]):
         return ReflexionStrategy.LAST_ATTEMPT_AND_REFLEXION
     # default
     return ReflexionStrategy.REFLEXION
-
-
-COMMON_QUESTION_FIELDS = ["question", "query", "prompt"]
-COMMON_CONTEXT_FIELDS = ["context", "abstract", "passage", "article", "text", "background"]
-COMMON_ANSWER_FIELDS = ["answer", "label", "answers", "final_answer", "target"]
-
-
-def detect_fields(example: dict) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Return (question_field, context_field, answer_field) or (None,...)"""
-    keys = list(example.keys())
-    q = next((k for k in keys if k.lower() in COMMON_QUESTION_FIELDS), None)
-    c = next((k for k in keys if k.lower() in COMMON_CONTEXT_FIELDS), None)
-    a = next((k for k in keys if k.lower() in COMMON_ANSWER_FIELDS), None)
-    # fallback heuristics
-    if q is None:
-        # try any key that contains 'question'
-        q = next((k for k in keys if 'question' in k.lower()), None)
-    if c is None:
-        c = next((k for k in keys if 'abstract' in k.lower() or 'context' in k.lower()), None)
-    if a is None:
-        a = next((k for k in keys if 'label' in k.lower() or 'answer' in k.lower() or 'target' in k.lower()), None)
-    return q, c, a
 
 
 def build_llm(args):
@@ -228,21 +206,25 @@ def run(args, external_llm=None):
         return
 
     sample = ds[0]
-    q_field, c_field, a_field = detect_fields(sample)
-    # Allow explicit overrides from args when provided
-    explicit_q = getattr(args, 'question_field', None)
-    explicit_c = getattr(args, 'context_field', None)
-    explicit_a = getattr(args, 'answer_field', None)
-    if explicit_q:
-        q_field = explicit_q
-    if explicit_c:
-        c_field = explicit_c
-    if explicit_a:
-        a_field = explicit_a
-    print('Using fields ->', q_field, c_field, a_field)
-    if q_field is None:
-        print('Could not determine a question field. Dataset feature keys:', list(sample.keys()))
-        return
+    q_field = getattr(args, 'question_field', 'question')
+    c_field = getattr(args, 'context_field', 'context')
+    a_field = getattr(args, 'answer_field', 'final_decision')
+    long_field = getattr(args, 'long_answer_field', None)
+
+    def _ensure_field(name: str):
+        if name not in sample:
+            raise RuntimeError(f"Field '{name}' not found in dataset sample. Available keys: {list(sample.keys())}")
+
+    _ensure_field(q_field)
+    _ensure_field(c_field)
+    _ensure_field(a_field)
+    if long_field:
+        _ensure_field(long_field)
+
+    fields_msg = f'Using fields -> question={q_field}, context={c_field}, answer={a_field}'
+    if long_field:
+        fields_msg += f', long={long_field}'
+    print(fields_msg)
 
     # instantiate llm (or use a pre-initialized one when provided)
     # We expose two names: `llm_callable` (what agents should call) and
@@ -464,6 +446,7 @@ def run(args, external_llm=None):
         question = extract_text(ex.get(q_field))
         context = extract_text(ex.get(c_field)) if c_field else ''
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
+        long_answer_text = extract_text(ex.get(long_field)) if long_field else ''
 
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
         # If a global LangChain Wikipedia docstore is not configured, create a
@@ -670,6 +653,7 @@ def run(args, external_llm=None):
             'question': question,
             'context': context[:1000],
             'true_answer': true_answer,
+            'long_answer': long_answer_text,
             'predicted_answer': pred,
             'correct': is_correct,
         })
@@ -680,7 +664,7 @@ def run(args, external_llm=None):
     # write CSV
     out_path = args.out or f'results_{args.dataset.replace("/","_")}_{args.split}.csv'
     with open(out_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','predicted_answer','correct'])
+        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','correct'])
         writer.writeheader()
         for r in out_rows:
             writer.writerow(r)
@@ -703,9 +687,10 @@ if __name__ == '__main__':
     p.add_argument('--reflexion-strategy', choices=['none','last_attempt','reflexion','last_attempt_and_reflexion'], default='reflexion', help='Reflexion strategy to apply (when agent supports it)')
     p.add_argument('--max-steps', type=int, default=6, help='max steps for ReactAgent')
     # Optional explicit field mapping (overrides auto-detection)
-    p.add_argument('--question-field', default=None, help='Explicit dataset field to use as the question')
-    p.add_argument('--context-field', default=None, help='Explicit dataset field to use as the context/abstract')
-    p.add_argument('--answer-field', default=None, help='Explicit dataset field to use as the gold answer/label')
+    p.add_argument('--question-field', default='question', help='Dataset field to use as the question')
+    p.add_argument('--context-field', default='context', help='Dataset field to use as the context/abstract')
+    p.add_argument('--answer-field', default='final_decision', help='Dataset field to use as the gold answer/label')
+    p.add_argument('--long-answer-field', default='long_answer', help='Dataset field containing the explanatory long answer/rationale (optional)')
     # Local transformers options
     p.add_argument('--device', default=None, help='Device to load model on (cuda/mps/cpu). If not set, adapter auto-detects')
     p.add_argument('--load-in-4bit', action='store_true', help='Load model in 4-bit using bitsandbytes (requires CUDA + bitsandbytes)')
