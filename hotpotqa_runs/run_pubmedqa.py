@@ -435,12 +435,16 @@ def run(args, external_llm=None):
     else:
         AgentClass = ReactAgent
 
+    limit = getattr(args, 'limit', None)
+    if limit == 0:
+        limit = None
+
     out_rows = []
     total = 0
     correct = 0
 
     for i, ex in enumerate(ds):
-        if args.limit and i >= args.limit:
+        if limit is not None and i >= limit:
             break
         total += 1
         question = extract_text(ex.get(q_field))
