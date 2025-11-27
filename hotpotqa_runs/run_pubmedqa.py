@@ -686,6 +686,8 @@ def run(args, external_llm=None):
             rationale_text = rationale_text.split('\n', 1)[0].strip()
         else:
             rationale_text = f'Reason: {pred}.'
+        if debug_enabled:
+            print('Extracted reason text:', rationale_text)
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
         try:
