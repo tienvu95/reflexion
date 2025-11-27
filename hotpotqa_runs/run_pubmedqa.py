@@ -290,7 +290,6 @@ def run(args, external_llm=None):
     # an underlying transformers-style model+tokenizer when available. Returns
     # a dict mapping choice->prob or None when scoring is not supported.
     def _score_choices_via_transformers(raw_llm, prompt: str, choices):
-        # prefer explicit .model and .tokenizer attributes
         model = getattr(raw_llm, 'model', None)
         tokenizer = getattr(raw_llm, 'tokenizer', None)
         if model is None or tokenizer is None:
@@ -301,34 +300,66 @@ def run(args, external_llm=None):
         import torch
         import torch.nn.functional as F
 
+        device = next(model.parameters()).device
         max_len = getattr(args, 'max_seq_length', 8192)
-        try:
-            device = next(model.parameters()).device
-            logls = []
-            for choice in choices:
-                full = prompt + choice
-                inputs = tokenizer(full, return_tensors='pt', truncation=True, max_length=max_len)
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                with torch.no_grad():
-                    outputs = model(**inputs, return_dict=True)
-                    logits = outputs.logits  # (1, L, V)
-                ids = inputs['input_ids'][0]
-                prompt_ids = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)['input_ids'][0]
-                start = len(prompt_ids)
-                log_lik = 0.0
-                for j in range(start, len(ids)):
-                    logp = F.log_softmax(logits[0, j-1], dim=-1)[ids[j]].item()
-                    log_lik += logp
-                logls.append(log_lik)
-            m = max(logls)
-            exps = [math.exp(l - m) for l in logls]
-            s = sum(exps)
-            probs = [e / s for e in exps]
-            return dict(zip(choices, probs))
-        except Exception as e:
-            if getattr(args, 'print_logit_debug', False):
-                print('Logit scoring failed:', type(e).__name__, e)
-            return None
+
+        def _logprob_via_forward(choice: str):
+            full = prompt + choice
+            inputs = tokenizer(full, return_tensors='pt', truncation=True, max_length=max_len)
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = model(**inputs, return_dict=True)
+                logits = outputs.logits  # (1, L, V)
+            ids = inputs['input_ids'][0]
+            prompt_ids = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)['input_ids'][0]
+            start = len(prompt_ids)
+            log_lik = 0.0
+            for j in range(start, len(ids)):
+                logp = F.log_softmax(logits[0, j-1], dim=-1)[ids[j]].item()
+                log_lik += logp
+            return log_lik
+
+        def _logprob_via_generate(choice: str):
+            choice_ids = tokenizer(choice, add_special_tokens=False, return_tensors='pt')['input_ids'][0].to(device)
+            inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            target_len = choice_ids.shape[0]
+            with torch.no_grad():
+                out = model.generate(
+                    **inputs,
+                    max_new_tokens=target_len,
+                    do_sample=False,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                )
+            scores = out.scores  # list length target_len
+            log_lik = 0.0
+            for idx, tok_id in enumerate(choice_ids):
+                logits = scores[idx][0]
+                logp = F.log_softmax(logits, dim=-1)[tok_id].item()
+                log_lik += logp
+            return log_lik
+
+        logls = []
+        for choice in choices:
+            logprob = None
+            try:
+                logprob = _logprob_via_forward(choice)
+            except Exception as e_fwd:
+                if getattr(args, 'print_logit_debug', False):
+                    print('Forward logprob failed:', type(e_fwd).__name__, e_fwd)
+                try:
+                    logprob = _logprob_via_generate(choice)
+                except Exception as e_gen:
+                    if getattr(args, 'print_logit_debug', False):
+                        print('Generate logprob failed:', type(e_gen).__name__, e_gen)
+                    return None
+            logls.append(logprob)
+        m = max(logls)
+        exps = [math.exp(l - m) for l in logls]
+        s = sum(exps)
+        probs = [e / s for e in exps]
+        return dict(zip(choices, probs))
 
     debug_enabled = getattr(args, 'print_debug', True)
 
