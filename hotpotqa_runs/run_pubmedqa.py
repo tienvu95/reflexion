@@ -226,19 +226,6 @@ def run(args, external_llm=None):
         fields_msg += f', long={long_field}'
     print(fields_msg)
 
-    dataset_docstore = None
-    if getattr(args, 'react_use_dataset_index', False) and c_field:
-        docs = {}
-        for idx, example in enumerate(ds):
-            ctx_text = extract_text(example.get(c_field)) if c_field else ''
-            if ctx_text:
-                docs[f'doc_{idx}'] = ctx_text
-        if docs:
-            dataset_docstore = DatasetIndexDocstore(docs)
-            print(f'Dataset index docstore built with {len(docs)} entries.')
-        else:
-            print('Warning: react_use_dataset_index enabled but no contexts collected.')
-
     # instantiate llm (or use a pre-initialized one when provided)
     # We expose two names: `llm_callable` (what agents should call) and
     # `llm_raw` (the underlying model/tokenizer object when available) so
@@ -373,79 +360,39 @@ def run(args, external_llm=None):
     except Exception:
         docstore = None
 
-# Simple fallback docstore that exposes .search() and .lookup() using the
-# example's `context` text. This ensures ReactAgent can at least Search/Lookup
-# within the provided context when LangChain/Wikipedia is not available.
-class SimpleDocstore:
-    def __init__(self, docs: dict):
-        # docs: id -> text
-        self.docs = docs
-        self._last_doc_id = None
+    # Simple fallback docstore that exposes .search() and .lookup() using the
+    # example's `context` text. This ensures ReactAgent can at least Search/Lookup
+    # within the provided context when LangChain/Wikipedia is not available.
+    class SimpleDocstore:
+        def __init__(self, docs: dict):
+            # docs: id -> text
+            self.docs = docs
+            self._last_doc_id = None
 
-    def search(self, query: str) -> str:
-        # naive search: return the first doc containing the query or the
-        # full text of the single context if nothing matches.
-        q = (query or '').lower()
-        for doc_id, text in self.docs.items():
-            if q in doc_id.lower() or q in text.lower():
-                self._last_doc_id = doc_id
-                return text
-        # fallback: return concatenation of all docs
-        if len(self.docs) > 0:
-            # pick first doc
-            did = next(iter(self.docs.keys()))
-            self._last_doc_id = did
-            return self.docs[did]
-        return 'No documents available.'
+        def search(self, query: str) -> str:
+            # naive search: return the first doc containing the query or the
+            # full text of the single context if nothing matches.
+            q = (query or '').lower()
+            for doc_id, text in self.docs.items():
+                if q in doc_id.lower() or q in text.lower():
+                    self._last_doc_id = doc_id
+                    return text
+            # fallback: return concatenation of all docs
+            if len(self.docs) > 0:
+                # pick first doc
+                did = next(iter(self.docs.keys()))
+                self._last_doc_id = did
+                return self.docs[did]
+            return 'No documents available.'
 
-    def lookup(self, term: str) -> str:
-        if self._last_doc_id is None:
-            raise ValueError('No last page searched.')
-        text = self.docs.get(self._last_doc_id, '')
-        for sent in text.split('.'):
-            if term.lower() in sent.lower():
-                return sent.strip()
-        return 'Term not found in last page.'
-
-
-class DatasetIndexDocstore:
-    def __init__(self, docs: dict):
-        self.docs = docs
-        self.lower_docs = {k: (v or '').lower() for k, v in docs.items()}
-        self.doc_ids = list(docs.keys())
-        self._last_doc_id = None
-
-    def search(self, query: str) -> str:
-        if not self.docs:
-            return 'Dataset index is empty.'
-        q = (query or '').strip().lower()
-        if not q:
-            doc_id = self.doc_ids[0]
-            self._last_doc_id = doc_id
-            return self.docs[doc_id]
-        best_id = None
-        best_score = -1.0
-        q_terms = [tok for tok in q.split() if tok]
-        for doc_id, text in self.lower_docs.items():
-            score = text.count(q)
-            if score <= 0 and q_terms:
-                score = sum(1 for term in q_terms if term in text)
-            if score > best_score:
-                best_score = score
-                best_id = doc_id
-        if best_id is None:
-            best_id = self.doc_ids[0]
-        self._last_doc_id = best_id
-        return self.docs[best_id]
-
-    def lookup(self, term: str) -> str:
-        if self._last_doc_id is None:
-            raise ValueError('No last page searched.')
-        text = self.docs.get(self._last_doc_id, '')
-        for sent in text.split('.'):
-            if term.lower() in sent.lower():
-                return sent.strip()
-        return 'Term not found in last page.'
+        def lookup(self, term: str) -> str:
+            if self._last_doc_id is None:
+                raise ValueError('No last page searched.')
+            text = self.docs.get(self._last_doc_id, '')
+            for sent in text.split('.'):
+                if term.lower() in sent.lower():
+                    return sent.strip()
+            return 'Term not found in last page.'
 
     def coerce_yes_no_maybe(pred_text: str, scratchpad: str) -> str:
         """Map a model output to 'yes'/'no'/'maybe' using heuristics and scratchpad search.
@@ -531,23 +478,12 @@ class DatasetIndexDocstore:
         # If a global LangChain Wikipedia docstore is not configured, create a
         # per-example SimpleDocstore using the example `context` so Search/Lookup
         # still return meaningful text.
+        doc_for_agent = docstore if docstore is not None else SimpleDocstore({'context': context})
         if AgentClass is ReactAgent:
-            if dataset_docstore is not None:
-                doc_for_agent = dataset_docstore
-            elif docstore is not None:
-                doc_for_agent = docstore
-            else:
-                doc_for_agent = SimpleDocstore({'context': context})
             agent = ReactAgent(question=question, key=true_answer, react_llm=llm_callable, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
         elif AgentClass is CoTAgent:
             agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm_callable, self_reflect_llm=llm_callable, force_finish_format=getattr(args, 'force_finish_format', False))
         else:  # ReactReflectAgent
-            if dataset_docstore is not None:
-                doc_for_agent = dataset_docstore
-            elif docstore is not None:
-                doc_for_agent = docstore
-            else:
-                doc_for_agent = SimpleDocstore({'context': context})
             agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm_callable, reflect_llm=llm_callable, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
 
         # Defensive: clear the agent's few-shot examples when running open-domain
@@ -828,7 +764,6 @@ if __name__ == '__main__':
     p.add_argument('--print-logit-debug', action='store_true', help='Print yes/no/maybe probability scores when evaluating confidence')
     p.set_defaults(print_debug=True, print_logit_debug=False)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
-    p.add_argument('--react-use-dataset-index', action='store_true', help='For React agents, build a simple dataset-wide docstore instead of giving per-example context')
     args = p.parse_args()
 
     # normalize limit
