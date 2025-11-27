@@ -460,6 +460,21 @@ def run(args, external_llm=None):
     gold_labels: list[str] = []
     pred_labels: list[str] = []
     prob_records = []
+    rouge_records = []
+    readability_scores = []
+
+    try:
+        from rouge_score import rouge_scorer
+        rouge_scorer_fn = rouge_scorer.RougeScorer(['rouge1','rougeL'], use_stemmer=True)
+    except Exception:
+        rouge_scorer_fn = None
+        print('rouge_score package not available; skipping rationale ROUGE metrics.')
+
+    try:
+        import textstat
+    except Exception:
+        textstat = None
+        print('textstat not available; skipping readability metrics.')
 
     def _canon_label(val: str) -> str:
         return (val or '').strip().lower()
@@ -663,7 +678,9 @@ def run(args, external_llm=None):
 
         # Canonicalize prediction to yes/no/maybe so downstream evaluation and
         # logging are consistent even if the model emitted extra prose.
-        pred = coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', ''))
+        rationale_text = getattr(agent, 'scratchpad', '')
+
+        pred = coerce_yes_no_maybe(pred, rationale_text)
         try:
             agent.answer = pred
         except Exception:
@@ -680,6 +697,18 @@ def run(args, external_llm=None):
         if is_correct:
             correct += 1
 
+        if rouge_scorer_fn and rationale_text and long_answer_text:
+            try:
+                score = rouge_scorer_fn.score(long_answer_text, rationale_text)
+                rouge_records.append(score)
+            except Exception:
+                pass
+        if textstat and rationale_text:
+            try:
+                readability_scores.append(textstat.flesch_reading_ease(rationale_text))
+            except Exception:
+                pass
+
         out_rows.append({
             'index': i,
             'question': question,
@@ -687,6 +716,7 @@ def run(args, external_llm=None):
             'true_answer': true_answer,
             'long_answer': long_answer_text,
             'predicted_answer': pred,
+             'scratchpad': rationale_text,
             'correct': is_correct,
         })
 
@@ -698,7 +728,7 @@ def run(args, external_llm=None):
     # write CSV
     out_path = args.out or f'results_{args.dataset.replace("/","_")}_{args.split}.csv'
     with open(out_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','correct'])
+        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','scratchpad','correct'])
         writer.writeheader()
         for r in out_rows:
             writer.writerow(r)
@@ -729,6 +759,20 @@ def run(args, external_llm=None):
         print(f'Mean Brier (0-2 scale over {len(valid_probs)} examples): {mean_brier:.6f}')
     else:
         print('No probability data available to compute Brier score (model/tokenizer pair missing).')
+
+    if rouge_records:
+        r1 = sum(s['rouge1'].fmeasure for s in rouge_records) / len(rouge_records)
+        rL = sum(s['rougeL'].fmeasure for s in rouge_records) / len(rouge_records)
+        print(f'Avg ROUGE-1 F1 (rationale vs long_answer): {r1:.4f}')
+        print(f'Avg ROUGE-L F1 (rationale vs long_answer): {rL:.4f}')
+    else:
+        print('ROUGE metrics not computed for rationales.')
+
+    if readability_scores:
+        avg_read = sum(readability_scores) / len(readability_scores)
+        print(f'Avg Flesch Reading Ease (rationales): {avg_read:.2f}')
+    else:
+        print('Readability metrics not computed for rationales.')
 
 
 if __name__ == '__main__':
