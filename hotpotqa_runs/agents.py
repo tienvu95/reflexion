@@ -176,7 +176,7 @@ class CoTAgent:
                 self.scratchpad += 'Answer is CORRECT'
             else:
                 self.scratchpad += 'Answer is INCORRECT'
-            if 'Reason:' not in self.scratchpad:
+            if _needs_reason(self.scratchpad):
                 reason = self._generate_reason(argument)
                 if reason:
                     self.scratchpad += f'\n{reason}'
@@ -337,6 +337,10 @@ class ReactAgent:
                 self.scratchpad += 'Answer is CORRECT'
             else: 
                 self.scratchpad += 'Answer is INCORRECT'
+            if _needs_reason(self.scratchpad):
+                reason = self._generate_reason(argument)
+                if reason:
+                    self.scratchpad += f'\n{reason}'
             self.finished = True
             self.step_n += 1
             return
@@ -452,6 +456,30 @@ class ReactAgent:
         self.question = question
         self.key = key
 
+    def _generate_reason(self, label: str) -> str:
+        llm = self.llm
+        if llm is None:
+            return f"Reason: {label}."
+        prompt = (
+            "Provide a single-sentence justification for the answer label.\n"
+            f"Question: {self.question}\n"
+            f"Abstract: [retrieved evidence]\n"
+            f"Answer label: {label}\n"
+            "Respond in the format `Reason: ...` and do not add anything after that sentence.\nReason: "
+        )
+        try:
+            out = llm(prompt)
+            out = out.strip()
+            if 'Reason:' not in out:
+                out = 'Reason: ' + out
+            reason = out.split('\n', 1)[0]
+            reason = reason.split('.', 1)[0].strip()
+            if not reason.endswith('.'):
+                reason += '.'
+            return reason
+        except Exception:
+            return f"Reason: {label}."
+
 class ReactReflectAgent(ReactAgent):
     def __init__(self,
                  question: str,
@@ -559,6 +587,12 @@ def parse_action(string):
 
 def format_step(step: str) -> str:
     return step.replace('\r', '').strip()
+
+def _needs_reason(text: str) -> bool:
+    for line in text.splitlines():
+        if line.strip().lower().startswith('reason:'):
+            return False
+    return True
 
 def format_reflections(reflections: List[str],
                         header: str = REFLECTION_HEADER) -> str:

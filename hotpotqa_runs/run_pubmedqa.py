@@ -680,14 +680,15 @@ def run(args, external_llm=None):
         # logging are consistent even if the model emitted extra prose.
         scratchpad = getattr(agent, 'scratchpad', '')
         rationale_text = ''
-        if 'Reason:' in scratchpad:
-            rationale_text = scratchpad.rsplit('Reason:', 1)[1].strip()
-            rationale_text = rationale_text.split('Answer:', 1)[0].strip()
-            rationale_text = rationale_text.split('\n', 1)[0].strip()
-        else:
+        for line in reversed(scratchpad.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            if line.lower().startswith('reason:'):
+                rationale_text = line
+                break
+        if not rationale_text:
             rationale_text = f'Reason: {pred}.'
-        if debug_enabled:
-            print('Extracted reason text:', rationale_text)
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
         try:
