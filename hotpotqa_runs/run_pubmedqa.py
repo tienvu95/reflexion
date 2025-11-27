@@ -681,11 +681,11 @@ def run(args, external_llm=None):
         scratchpad = getattr(agent, 'scratchpad', '')
         rationale_text = ''
         if 'Reason:' in scratchpad:
-            rationale_text = scratchpad.split('Reason:', 1)[1].strip()
+            rationale_text = scratchpad.rsplit('Reason:', 1)[1].strip()
             rationale_text = rationale_text.split('Answer:', 1)[0].strip()
             rationale_text = rationale_text.split('\n', 1)[0].strip()
         else:
-            rationale_text = ''
+            rationale_text = f'Reason: {pred}.'
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
         try:
