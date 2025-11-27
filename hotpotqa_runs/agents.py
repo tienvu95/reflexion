@@ -554,7 +554,7 @@ def parse_action(string):
     return None, None
 
 def format_step(step: str) -> str:
-    return step.strip('\n').strip().replace('\n', '')
+    return step.replace('\r', '').strip()
 
 def format_reflections(reflections: List[str],
                         header: str = REFLECTION_HEADER) -> str:
