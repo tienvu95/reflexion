@@ -678,9 +678,12 @@ def run(args, external_llm=None):
 
         # Canonicalize prediction to yes/no/maybe so downstream evaluation and
         # logging are consistent even if the model emitted extra prose.
-        rationale_text = getattr(agent, 'scratchpad', '')
+        scratchpad = getattr(agent, 'scratchpad', '')
+        rationale_text = scratchpad
+        if 'Reason:' in scratchpad:
+            rationale_text = scratchpad.split('Reason:', 1)[1].strip()
 
-        pred = coerce_yes_no_maybe(pred, rationale_text)
+        pred = coerce_yes_no_maybe(pred, scratchpad)
         try:
             agent.answer = pred
         except Exception:
@@ -716,7 +719,8 @@ def run(args, external_llm=None):
             'true_answer': true_answer,
             'long_answer': long_answer_text,
             'predicted_answer': pred,
-             'scratchpad': rationale_text,
+            'scratchpad': scratchpad,
+            'reason_text': rationale_text,
             'correct': is_correct,
         })
 

@@ -6,7 +6,7 @@ except Exception:
     except Exception:
         from prompt_shim import PromptTemplate
 
-COT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Start by deciding the label (yes, no, or maybe) before writing any rationale. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
+COT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe). After emitting the label, write a short justification prefixed with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -14,7 +14,7 @@ Here are some examples:
 Relevant PubMed Context: {context} 
 Question: {question}{scratchpad}"""
 
-COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
+COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe) and then provide a short justification prefixed with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -24,7 +24,7 @@ Here are some examples:
 Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
 
-COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure. Use complete sentences.  
+COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure. Use complete sentences and remember to restate when the `Reason:` justification should be used.  
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -50,7 +50,7 @@ cot_reflect_prompt = PromptTemplate(
                         template = COT_REFLECT_INSTRUCTION,
                         )
 
-COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
+COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe). After writing the label, provide a brief justification starting with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -58,7 +58,7 @@ Here are some examples:
 Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
+COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe), and after the label provide a short justification starting with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -67,7 +67,7 @@ Relevant PubMed Context: {context}
 
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial with a biomedical abstract and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose the failure and propose a concise plan that explains how to better use the PubMed context to arrive at the correct yes/no/maybe answer.
+COT_SIMPLE_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial with a biomedical abstract and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose the failure and propose a concise plan that explains how to better use the PubMed context to arrive at the correct yes/no/maybe answer, including when to present the `Reason:` justification.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -96,8 +96,8 @@ cot_simple_reflect_prompt = PromptTemplate(
 REACT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
 (1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
-(3) Finish[answer], which returns the answer and finishes the task.
-You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe.
+(3) Finish[answer], which returns the answer and finishes the task. When you finish, the answer must be yes, no, or maybe followed by a short justification prefixed with "Reason:".
+You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe, then supply the Reason line.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -107,7 +107,7 @@ Question: {question}{scratchpad}"""
 REACT_INSTRUCTION_STRICT = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
 (1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
-(3) Finish[answer], which returns the answer and finishes the task.
+(3) Finish[answer], which returns the answer and finishes the task. When you choose Finish, output yes, no, or maybe and immediately add a "Reason:" line that briefly cites the supporting evidence.
 
 IMPORTANT: When you output an Action, OUTPUT EXACTLY one line that begins with `Action:` followed by one of the three action forms above (for example: `Action: Search[Barack Obama]` or `Action: Finish[yes]`). Do not include extra commentary on the same line. If you want to reason, put it under `Thought:` lines only.
 Only finish with the labels yes, no, or maybe.
@@ -121,8 +121,8 @@ Question: {question}{scratchpad}"""
 REACT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
 (1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
-(3) Finish[answer], which returns the answer and finishes the task.
-You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe.
+(3) Finish[answer], which returns the answer and finishes the task, then you must add a concise "Reason:" line grounded in the retrieved evidence.
+You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe followed by a Reason line.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -158,4 +158,3 @@ reflect_prompt = PromptTemplate(
                         input_variables=["examples", "question", "scratchpad"],
                         template = REFLECT_INSTRUCTION,
                         )
-
