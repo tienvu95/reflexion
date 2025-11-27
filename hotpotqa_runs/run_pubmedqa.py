@@ -303,22 +303,6 @@ def run(args, external_llm=None):
         device = next(model.parameters()).device
         max_len = getattr(args, 'max_seq_length', 8192)
 
-        def _logprob_via_forward(choice: str):
-            full = prompt + choice
-            inputs = tokenizer(full, return_tensors='pt', truncation=True, max_length=max_len)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            with torch.no_grad():
-                outputs = model(**inputs, return_dict=True)
-                logits = outputs.logits  # (1, L, V)
-            ids = inputs['input_ids'][0]
-            prompt_ids = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)['input_ids'][0]
-            start = len(prompt_ids)
-            log_lik = 0.0
-            for j in range(start, len(ids)):
-                logp = F.log_softmax(logits[0, j-1], dim=-1)[ids[j]].item()
-                log_lik += logp
-            return log_lik
-
         def _logprob_via_generate(choice: str):
             choice_ids = tokenizer(choice, add_special_tokens=False, return_tensors='pt')['input_ids'][0].to(device)
             inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)
@@ -331,6 +315,7 @@ def run(args, external_llm=None):
                     do_sample=False,
                     output_scores=True,
                     return_dict_in_generate=True,
+                    use_cache=True,
                 )
             scores = out.scores  # list length target_len
             log_lik = 0.0
@@ -344,16 +329,11 @@ def run(args, external_llm=None):
         for choice in choices:
             logprob = None
             try:
-                logprob = _logprob_via_forward(choice)
-            except Exception as e_fwd:
+                logprob = _logprob_via_generate(choice)
+            except Exception as e_gen:
                 if getattr(args, 'print_logit_debug', False):
-                    print('Forward logprob failed:', type(e_fwd).__name__, e_fwd)
-                try:
-                    logprob = _logprob_via_generate(choice)
-                except Exception as e_gen:
-                    if getattr(args, 'print_logit_debug', False):
-                        print('Generate logprob failed:', type(e_gen).__name__, e_gen)
-                    return None
+                    print('Generate logprob failed:', type(e_gen).__name__, e_gen)
+                return None
             logls.append(logprob)
         m = max(logls)
         exps = [math.exp(l - m) for l in logls]
