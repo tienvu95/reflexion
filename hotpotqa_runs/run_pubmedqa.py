@@ -732,7 +732,7 @@ def run(args, external_llm=None):
     # write CSV
     out_path = args.out or f'results_{args.dataset.replace("/","_")}_{args.split}.csv'
     with open(out_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','scratchpad','correct'])
+        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','scratchpad','reason_text','correct'])
         writer.writeheader()
         for r in out_rows:
             writer.writerow(r)
