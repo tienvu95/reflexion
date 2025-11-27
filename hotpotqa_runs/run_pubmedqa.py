@@ -438,10 +438,17 @@ def run(args, external_llm=None):
     limit = getattr(args, 'limit', None)
     if limit == 0:
         limit = None
+    target_total = len(ds) if limit is None else min(len(ds), limit)
 
     out_rows = []
     total = 0
     correct = 0
+    gold_labels: list[str] = []
+    pred_labels: list[str] = []
+    prob_records = []
+
+    def _canon_label(val: str) -> str:
+        return (val or '').strip().lower()
 
     for i, ex in enumerate(ds):
         if limit is not None and i >= limit:
@@ -450,6 +457,7 @@ def run(args, external_llm=None):
         question = extract_text(ex.get(q_field))
         context = extract_text(ex.get(c_field)) if c_field else ''
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
+        gold_label = _canon_label(true_answer)
         long_answer_text = extract_text(ex.get(long_field)) if long_field else ''
 
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
@@ -572,6 +580,7 @@ def run(args, external_llm=None):
         # transformers model+tokenizer is available. If confidence is low,
         # attempt reflexion (if supported) and rerun to improve confidence.
         pred = getattr(agent, 'answer', '')
+        prob_dict_for_example = None
         try:
             max_attempts = getattr(args, 'max_reflect_attempts', 2)
             attempts = 0
@@ -592,6 +601,7 @@ def run(args, external_llm=None):
                 if confs is None:
                     # scoring not available; break out
                     break
+                prob_dict_for_example = confs
 
                 # coerce current prediction to canonical label
                 cur_label = coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', ''))
@@ -622,6 +632,7 @@ def run(args, external_llm=None):
                 attempts += 1
         except Exception:
             pass
+        prob_records.append((prob_dict_for_example, gold_label))
         # Some agents may leave answer empty; try to extract Finish[...] from scratchpad
         if not pred:
             # look for Finish[...] pattern in scratchpad
@@ -643,6 +654,8 @@ def run(args, external_llm=None):
             agent.answer = pred
         except Exception:
             pass
+        pred_labels.append(pred)
+        gold_labels.append(gold_label)
 
         is_correct = False
         try:
@@ -663,8 +676,10 @@ def run(args, external_llm=None):
             'correct': is_correct,
         })
 
-        if total % 10 == 0:
-            print(f"Processed {total} examples. Acc={correct}/{total}={correct/total:.3f}")
+        if total % 10 == 0 or total == target_total:
+            pct = (total / target_total) * 100 if target_total else 0.0
+            acc = correct / total if total else 0.0
+            print(f"Progress: {total}/{target_total} ({pct:.1f}%)  Acc={acc:.3f}")
 
     # write CSV
     out_path = args.out or f'results_{args.dataset.replace("/","_")}_{args.split}.csv'
@@ -675,6 +690,31 @@ def run(args, external_llm=None):
             writer.writerow(r)
 
     print(f"Done. Processed={total}. Correct={correct}. Results saved to {out_path}")
+
+    # Aggregate accuracy / F1 / classification metrics if sklearn is available
+    try:
+        from sklearn.metrics import accuracy_score, f1_score, classification_report
+
+        if gold_labels and pred_labels:
+            acc = accuracy_score(gold_labels, pred_labels)
+            f1 = f1_score(gold_labels, pred_labels, average='macro')
+            print(f'Accuracy: {acc:.4f}')
+            print(f'Macro-F1: {f1:.4f}')
+            print(classification_report(gold_labels, pred_labels, digits=4))
+    except ImportError:
+        print('sklearn not installed; skipping accuracy/F1 metrics.')
+
+    # Compute mean Brier score when probability records are available
+    valid_probs = [(prob, gold) for prob, gold in prob_records if prob is not None]
+    if valid_probs:
+        def _brier(prob_dict, gold):
+            classes = ('yes', 'no', 'maybe')
+            return sum((prob_dict.get(cls, 0.0) - (1.0 if gold == cls else 0.0))**2 for cls in classes)
+
+        mean_brier = sum(_brier(prob, gold) for prob, gold in valid_probs) / len(valid_probs)
+        print(f'Mean Brier (0-2 scale over {len(valid_probs)} examples): {mean_brier:.6f}')
+    else:
+        print('No probability data available to compute Brier score (model/tokenizer pair missing).')
 
 
 if __name__ == '__main__':
