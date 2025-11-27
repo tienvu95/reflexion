@@ -679,9 +679,13 @@ def run(args, external_llm=None):
         # Canonicalize prediction to yes/no/maybe so downstream evaluation and
         # logging are consistent even if the model emitted extra prose.
         scratchpad = getattr(agent, 'scratchpad', '')
-        rationale_text = scratchpad
+        rationale_text = ''
         if 'Reason:' in scratchpad:
             rationale_text = scratchpad.split('Reason:', 1)[1].strip()
+            rationale_text = rationale_text.split('Answer:', 1)[0].strip()
+            rationale_text = rationale_text.split('\n', 1)[0].strip()
+        else:
+            rationale_text = ''
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
         try:
