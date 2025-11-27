@@ -592,7 +592,8 @@ def run(args, external_llm=None):
                 # coerce current prediction to canonical label
                 cur_label = coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', ''))
                 cur_conf = float(confs.get(cur_label, 0.0))
-                print(f'Confidence for prediction "{cur_label}" = {cur_conf:.4f} (choices: {confs})')
+                if getattr(args, 'print_logit_debug', False):
+                    print(f'Confidence for prediction \"{cur_label}\" = {cur_conf:.4f} (choices: {confs})')
 
                 # If confidence is acceptable, stop retrying
                 threshold = getattr(args, 'confidence_threshold', 0.6)
@@ -702,7 +703,8 @@ if __name__ == '__main__':
     p.add_argument('--max-reflect-attempts', type=int, default=2, help='Maximum number of reflexion+retry attempts when confidence is low')
     p.add_argument('--print-debug', dest='print_debug', action='store_true', help='Print verbose debug info (default)')
     p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
-    p.set_defaults(print_debug=True)
+    p.add_argument('--print-logit-debug', action='store_true', help='Print yes/no/maybe probability scores when evaluating confidence')
+    p.set_defaults(print_debug=True, print_logit_debug=False)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
     args = p.parse_args()
 
