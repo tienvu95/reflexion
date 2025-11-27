@@ -214,14 +214,22 @@ class CoTAgent:
         return last_out
 
     def _generate_reason(self, label: str) -> str:
+        llm = self.self_reflect_llm or self.action_llm
+        prompt = (
+            "Provide a one-sentence justification for the answer.\n"
+            f"Question: {self.question}\n"
+            f"Abstract: {self.context}\n"
+            f"Answer label: {label}\n"
+            "Respond in the format `Reason: ...`.\nReason: "
+        )
         try:
-            prompt = f"Question: {self.question}\nAbstract: {self.context}\nLabel: {label}\nReason: "
-            out = format_step(self.action_llm(prompt))
+            out = llm(prompt)
+            out = out.strip()
             if not out.lower().startswith('reason:'):
                 out = 'Reason: ' + out
             return out
         except Exception:
-            return ''
+            return f"Reason: {label} based on the evidence described above."
     
     def _build_agent_prompt(self) -> str:
         return self.agent_prompt.format(
