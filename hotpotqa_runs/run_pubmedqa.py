@@ -492,6 +492,9 @@ def run(args, external_llm=None):
         print(f"\n===== Example {i+1}/{target_total} =====")
         print('Question:', question)
 
+        print(f"\n===== Example {i+1}/{target_total} =====")
+        print('Question:', question)
+
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
         # If a global LangChain Wikipedia docstore is not configured, create a
         # per-example SimpleDocstore using the example `context` so Search/Lookup
@@ -503,6 +506,9 @@ def run(args, external_llm=None):
             agent = CoTAgent(question=question, context=context, key=true_answer, action_llm=llm_callable, self_reflect_llm=llm_callable, force_finish_format=getattr(args, 'force_finish_format', False))
         else:  # ReactReflectAgent
             agent = ReactReflectAgent(question=question, key=true_answer, react_llm=llm_callable, reflect_llm=llm_callable, max_steps=args.max_steps, docstore=doc_for_agent, force_finish_format=getattr(args, 'force_finish_format', False))
+
+        if hasattr(agent, '_debug_enabled'):
+            agent._debug_enabled = debug_enabled
 
         if hasattr(agent, '_debug_enabled'):
             agent._debug_enabled = debug_enabled
@@ -741,6 +747,10 @@ def run(args, external_llm=None):
             pct = (total / target_total) * 100 if target_total else 0.0
             acc = correct / total if total else 0.0
             print(f"Progress: {total}/{target_total} ({pct:.1f}%)  Acc={acc:.3f}")
+
+        print('Final Answer:', pred)
+        print('Reason:', rationale_text if rationale_text else '(none)')
+        print('=========================================')
 
         print('Final Answer:', pred)
         print('Reason:', rationale_text if rationale_text else '(none)')

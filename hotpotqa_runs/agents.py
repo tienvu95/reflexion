@@ -165,11 +165,11 @@ class CoTAgent:
         # Act
         self.scratchpad += f'\nAction:'
         action = self.prompt_agent()
-        self.scratchpad += ' ' + action
+        action_type, argument = parse_action(action)
+        clean_action = action if action_type != 'Finish' else f'Finish[{argument}]'
+        self.scratchpad += ' ' + clean_action
         if self._debug_enabled:
             print(self.scratchpad.split('\n')[-1])
-
-        action_type, argument = parse_action(action)
 
         # Observe
         self.scratchpad += f'\nObservation: '
@@ -179,10 +179,9 @@ class CoTAgent:
                 self.scratchpad += 'Answer is CORRECT'
             else:
                 self.scratchpad += 'Answer is INCORRECT'
-            if _needs_reason(self.scratchpad):
-                reason = self._generate_reason(argument)
-                if reason:
-                    self.scratchpad += f'\n{reason}'
+            reason = self._generate_reason(argument)
+            if reason:
+                self.scratchpad += f'\n{reason}'
             self.finished = True
             return
         else:
@@ -330,8 +329,9 @@ class ReactAgent:
         # Act
         self.scratchpad += f'\nAction {self.step_n}:'
         action = self.prompt_agent()
-        self.scratchpad += ' ' + action
         action_type, argument = parse_action(action)
+        clean_action = action if action_type != 'Finish' else f'Finish[{argument}]'
+        self.scratchpad += ' ' + clean_action
         if self._debug_enabled:
             print(self.scratchpad.split('\n')[-1])
 
@@ -344,10 +344,9 @@ class ReactAgent:
                 self.scratchpad += 'Answer is CORRECT'
             else: 
                 self.scratchpad += 'Answer is INCORRECT'
-            if _needs_reason(self.scratchpad):
-                reason = self._generate_reason(argument)
-                if reason:
-                    self.scratchpad += f'\n{reason}'
+            reason = self._generate_reason(argument)
+            if reason:
+                self.scratchpad += f'\n{reason}'
             self.finished = True
             self.step_n += 1
             return
@@ -598,12 +597,6 @@ def parse_action(string):
 
 def format_step(step: str) -> str:
     return step.replace('\r', '').strip()
-
-def _needs_reason(text: str) -> bool:
-    for line in text.splitlines():
-        if line.strip().lower().startswith('reason:'):
-            return False
-    return True
 
 def _needs_reason(text: str) -> bool:
     for line in text.splitlines():
