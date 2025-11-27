@@ -229,9 +229,19 @@ def run(args, external_llm=None):
 
     sample = ds[0]
     q_field, c_field, a_field = detect_fields(sample)
-    print('Detected fields ->', q_field, c_field, a_field)
+    # Allow explicit overrides from args when provided
+    explicit_q = getattr(args, 'question_field', None)
+    explicit_c = getattr(args, 'context_field', None)
+    explicit_a = getattr(args, 'answer_field', None)
+    if explicit_q:
+        q_field = explicit_q
+    if explicit_c:
+        c_field = explicit_c
+    if explicit_a:
+        a_field = explicit_a
+    print('Using fields ->', q_field, c_field, a_field)
     if q_field is None:
-        print('Could not detect a question field. Dataset feature keys:', list(sample.keys()))
+        print('Could not determine a question field. Dataset feature keys:', list(sample.keys()))
         return
 
     # instantiate llm (or use a pre-initialized one when provided)
