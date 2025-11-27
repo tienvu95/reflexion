@@ -335,6 +335,8 @@ def run(args, external_llm=None):
         except Exception:
             return None
 
+    debug_enabled = getattr(args, 'print_debug', True)
+
     # Try to configure a Wikipedia docstore for ReactAgent if LangChain is available.
     # If unavailable, docstore remains None and agents will fallback to their existing behavior.
     docstore = None
@@ -344,10 +346,11 @@ def run(args, external_llm=None):
         # with DocstoreExplorer if LangChain is available. Avoid double-wrapping
         # by creating the raw Wikipedia object here.
         docstore = Wikipedia()
-        try:
-            print('Configured Wikipedia source for ReactAgent (will be wrapped).', 'docstore repr:', repr(docstore))
-        except Exception:
-            print('Configured Wikipedia source for ReactAgent (will be wrapped).')
+        if debug_enabled:
+            try:
+                print('Configured Wikipedia source for ReactAgent (will be wrapped).', 'docstore repr:', repr(docstore))
+            except Exception:
+                print('Configured Wikipedia source for ReactAgent (will be wrapped).')
     except Exception:
         docstore = None
 
@@ -498,58 +501,63 @@ def run(args, external_llm=None):
             if getattr(agent, 'docstore', None) is None:
                 try:
                     agent.docstore = fallback_ds
-                    print(f'Notice: Attached SimpleDocstore fallback to agent for example {i}')
+                    if debug_enabled:
+                        print(f'Notice: Attached SimpleDocstore fallback to agent for example {i}')
                 except Exception:
                     # best-effort: if the agent doesn't allow setting `.docstore`,
                     # try storing on a private attribute used by our debug prints
                     try:
                         setattr(agent, '_simple_docstore_fallback', fallback_ds)
-                        print(f'Notice: Stored SimpleDocstore fallback on agent._simple_docstore_fallback for example {i}')
+                        if debug_enabled:
+                            print(f'Notice: Stored SimpleDocstore fallback on agent._simple_docstore_fallback for example {i}')
                     except Exception:
-                        print('Warning: Could not attach SimpleDocstore fallback to agent')
+                        if debug_enabled:
+                            print('Warning: Could not attach SimpleDocstore fallback to agent')
             else:
                 # Agent already had a docstore (e.g., Wikipedia). Print its type.
-                try:
-                    print('Agent already has a docstore of type:', type(agent.docstore))
-                except Exception:
-                    pass
+                if debug_enabled:
+                    try:
+                        print('Agent already has a docstore of type:', type(agent.docstore))
+                    except Exception:
+                        pass
         except Exception:
             pass
 
         try:
             # Dispatch run with optional reflexion strategy when supported
             # Debug: report whether the agent has a docstore configured
-            try:
-                has_doc = getattr(agent, 'docstore', None) is not None
-                print(f'Agent docstore configured: {has_doc}')
-            except Exception:
-                pass
-            # Additional debug: print the inputs provided to the agent/LLM
-            try:
-                print('\n==== DEBUG: Inputs passed to agent for example {} ===='.format(i))
-                print('Question:', question)
-                if context is not None:
-                    ctx_snip = (context[:1000] + '...') if len(context) > 1000 else context
-                    print('Context (truncated 1000 chars):', ctx_snip)
-                else:
-                    print('Context: <None>')
-                print('True/Label Answer:', true_answer)
+            if debug_enabled:
                 try:
-                    print('doc_for_agent repr:', repr(doc_for_agent))
+                    has_doc = getattr(agent, 'docstore', None) is not None
+                    print(f'Agent docstore configured: {has_doc}')
                 except Exception:
-                    print('doc_for_agent repr: <unprintable>')
-                # If the agent exposes a prompt builder, try to print the initial prompt
+                    pass
+                # Additional debug: print the inputs provided to the agent/LLM
                 try:
-                    if hasattr(agent, '_build_agent_prompt'):
-                        built = agent._build_agent_prompt()
-                        print('\n--- Built agent prompt (initial) ---')
-                        print(built)
-                        print('--- End prompt ---\n')
-                except Exception as e:
-                    print('Could not build/print agent prompt:', type(e), e)
-            except Exception:
-                import traceback
-                traceback.print_exc()
+                    print('\n==== DEBUG: Inputs passed to agent for example {} ===='.format(i))
+                    print('Question:', question)
+                    if context is not None:
+                        ctx_snip = (context[:1000] + '...') if len(context) > 1000 else context
+                        print('Context (truncated 1000 chars):', ctx_snip)
+                    else:
+                        print('Context: <None>')
+                    print('True/Label Answer:', true_answer)
+                    try:
+                        print('doc_for_agent repr:', repr(doc_for_agent))
+                    except Exception:
+                        print('doc_for_agent repr: <unprintable>')
+                    # If the agent exposes a prompt builder, try to print the initial prompt
+                    try:
+                        if hasattr(agent, '_build_agent_prompt'):
+                            built = agent._build_agent_prompt()
+                            print('\n--- Built agent prompt (initial) ---')
+                            print(built)
+                            print('--- End prompt ---\n')
+                    except Exception as e:
+                        print('Could not build/print agent prompt:', type(e), e)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
             if isinstance(agent, CoTAgent):
                 # map string to ReflexionStrategy
                 strat = map_reflexion_str(args.reflexion_strategy)
@@ -697,6 +705,9 @@ if __name__ == '__main__':
     p.add_argument('--force-finish-format', action='store_true', help='Ask agents to output exactly one Finish[...] action with yes/no/maybe when finishing')
     p.add_argument('--confidence-threshold', type=float, default=0.6, help='Confidence threshold (0..1) to accept yes/no/maybe without further reflexion')
     p.add_argument('--max-reflect-attempts', type=int, default=2, help='Maximum number of reflexion+retry attempts when confidence is low')
+    p.add_argument('--print-debug', dest='print_debug', action='store_true', help='Print verbose debug info (default)')
+    p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
+    p.set_defaults(print_debug=True)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
     args = p.parse_args()
 
