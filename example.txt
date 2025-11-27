@@ -1,6 +1,9 @@
 Loading dataset qiaojin/PubMedQA split=train...
 Using fields -> question=question, context=context, answer=final_decision, long=long_answer
 Using externally provided LLM instance (wrapped)
+
+===== Example 1/2 =====
+Question: Do mitochondria play a role in remodelling lace plant leaves during programmed cell death?
 Notice: Attached SimpleDocstore fallback to agent for example 0
 Agent docstore configured: True
 
@@ -10,7 +13,7 @@ Context (truncated 1000 chars): Programmed cell death (PCD) is the regulated dea
 
 The following paper elucidates the role of mitochondrial dynamics during developmentally regulated PCD in vivo in A. madagascariensis. A single areole within a window stage leaf (PCD is occurring) was divided into three areas based on the progression of PCD; cells that will not undergo PCD (NPCD), cells in early stages of PCD (EPCD), and cells in late stages of PCD (LPCD). Window stage leaves were stained with the mitochondrial dye MitoTracker Red CMXRos a...
 True/Label Answer: yes
-doc_for_agent repr: <hotpotqa_runs.run_pubmedqa.run.<locals>.SimpleDocstore object at 0x7b701917e780>
+doc_for_agent repr: <hotpotqa_runs.run_pubmedqa.run.<locals>.SimpleDocstore object at 0x7b0b45117d70>
 
 --- Built agent prompt (initial) ---
 Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe) and then provide a short justification prefixed with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
@@ -42,8 +45,13 @@ Question: Do mitochondria play a role in remodelling lace plant leaves during pr
 
 Thought: The trial explicitly links higher ILC2 levels to nasal polyps and eosinophilic disease, so
 Relevant PubMed Context: Programmed cell death (PCD) is the regulated death of cells within an organism. The lace plant (Aponogeton madagascariensis) produces perforations in its leaves through PCD. The leaves of the plant consist of a latticework
-Confidence for prediction "yes" = 0.5970 (choices: {'yes': 0.5969858651778701, 'no': 0.28462450363134795, 'maybe': 0.118389631190782})
-Extracted reason text: ". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
+Confidence for prediction "yes" = 0.2708 (choices: {'yes': 0.2707853951799041, 'no': 0.7032217743698492, 'maybe': 0.025992830450246737})
+Final Answer: yes
+Reason: Reason: yes.
+=========================================
+
+===== Example 2/2 =====
+Question: Landolt C and snellen e acuity: differences in strabismus amblyopia?
 Notice: Attached SimpleDocstore fallback to agent for example 1
 Agent docstore configured: True
 
@@ -55,7 +63,7 @@ Context (truncated 1000 chars): Assessment of visual acuity depends on the optot
 
 Differences between Landolt...
 True/Label Answer: no
-doc_for_agent repr: <hotpotqa_runs.run_pubmedqa.run.<locals>.SimpleDocstore object at 0x7b7019142000>
+doc_for_agent repr: <hotpotqa_runs.run_pubmedqa.run.<locals>.SimpleDocstore object at 0x7b0b452ce030>
 
 --- Built agent prompt (initial) ---
 Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe) and then provide a short justification prefixed with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
@@ -90,4 +98,6 @@ Question: Landolt C and snellen e acuity: differences in strabismus amblyopia?
 Action: Finish[maybe]  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research where the effect size is small but not statistically significant. In this case, the answer is not a clear yes or no, but rather a more nuanced maybe.  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research where the effect size is small but not statistically significant. In this case, the answer is not a clear yes or no, but rather a more nuanced maybe.  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research where the effect size is small but not statistically significant. In this case, the answer is not a clear yes or no, but rather a more nuanced maybe.  # Note: The answer is not a definitive yes or
 Action: Finish[maybe]  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research where the effect size is small but not statistically significant. In this case, the answer is not a clear yes or no, but rather a more nuanced maybe.  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research where the effect size is small but not statistically significant. In this case, the answer is not a clear yes or no, but rather a more nuanced maybe.  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research where the effect size is small but not statistically significant. In this case, the answer is not a clear yes or no, but rather a more nuanced maybe.  # Note: The answer is not a definitive yes or no, but rather a nuanced maybe. The study found small differences, but they were not significant. This is a common outcome in research
 Confidence for prediction "maybe" = 0.0621 (choices: {'yes': 0.12028389074264614, 'no': 0.8175872766908479, 'maybe': 0.06212883256650597})
-Extracted reason text: Reason: maybe.
+Progress: 2/2 (100.0%)  Acc=0.500
+Final Answer: maybe
+Reason: Reason: maybe.

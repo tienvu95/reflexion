@@ -218,11 +218,11 @@ class CoTAgent:
     def _generate_reason(self, label: str) -> str:
         llm = self.self_reflect_llm or self.action_llm
         prompt = (
-            "Provide a single-sentence justification for the answer label.\n"
+            "You are validating a PubMedQA answer. Provide exactly one sentence beginning with 'Reason:' that cites key evidence from the abstract supporting the label.\n"
             f"Question: {self.question}\n"
             f"Abstract: {self.context}\n"
             f"Answer label: {label}\n"
-            "Respond in the format `Reason: ...` and do not add anything after that sentence.\nReason: "
+            "Reason: "
         )
         try:
             out = llm(prompt)
@@ -471,11 +471,11 @@ class ReactAgent:
         if llm is None:
             return f"Reason: {label}."
         prompt = (
-            "Provide a single-sentence justification for the answer label.\n"
+            "You are validating a PubMedQA answer. Provide exactly one sentence beginning with 'Reason:' using the retrieved evidence below.\n"
             f"Question: {self.question}\n"
-            f"Abstract: [retrieved evidence]\n"
+            f"Retrieved evidence:\n{context_snip}\n"
             f"Answer label: {label}\n"
-            "Respond in the format `Reason: ...` and do not add anything after that sentence.\nReason: "
+            "Reason: "
         )
         try:
             out = llm(prompt)

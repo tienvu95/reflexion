@@ -518,15 +518,7 @@ def run(args, external_llm=None):
         # want to keep biomedical few-shots, so skip clearing when the dataset
         # name indicates PubMedQA or when the caller explicitly requests to keep
         # the examples (keep_fewshot_examples=True).
-        should_clear_examples = True
-        try:
-            dataset_name = (getattr(args, 'dataset', '') or '').lower()
-            if 'pubmedqa' in dataset_name:
-                should_clear_examples = False
-        except Exception:
-            should_clear_examples = True
-        if getattr(args, 'keep_fewshot_examples', False):
-            should_clear_examples = False
+        should_clear_examples = not getattr(args, 'keep_fewshot_examples', False)
         if should_clear_examples:
             try:
                 if hasattr(agent, 'react_examples'):
