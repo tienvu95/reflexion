@@ -373,39 +373,40 @@ def run(args, external_llm=None):
     except Exception:
         docstore = None
 
-    # Simple fallback docstore that exposes .search() and .lookup() using the
-    # example's `context` text. This ensures ReactAgent can at least Search/Lookup
-    # within the provided context when LangChain/Wikipedia is not available.
+# Simple fallback docstore that exposes .search() and .lookup() using the
+# example's `context` text. This ensures ReactAgent can at least Search/Lookup
+# within the provided context when LangChain/Wikipedia is not available.
 class SimpleDocstore:
-        def __init__(self, docs: dict):
-            # docs: id -> text
-            self.docs = docs
-            self._last_doc_id = None
+    def __init__(self, docs: dict):
+        # docs: id -> text
+        self.docs = docs
+        self._last_doc_id = None
 
-        def search(self, query: str) -> str:
-            # naive search: return the first doc containing the query or the
-            # full text of the single context if nothing matches.
-            q = (query or '').lower()
-            for doc_id, text in self.docs.items():
-                if q in doc_id.lower() or q in text.lower():
-                    self._last_doc_id = doc_id
-                    return text
-            # fallback: return concatenation of all docs
-            if len(self.docs) > 0:
-                # pick first doc
-                did = next(iter(self.docs.keys()))
-                self._last_doc_id = did
-                return self.docs[did]
-            return 'No documents available.'
+    def search(self, query: str) -> str:
+        # naive search: return the first doc containing the query or the
+        # full text of the single context if nothing matches.
+        q = (query or '').lower()
+        for doc_id, text in self.docs.items():
+            if q in doc_id.lower() or q in text.lower():
+                self._last_doc_id = doc_id
+                return text
+        # fallback: return concatenation of all docs
+        if len(self.docs) > 0:
+            # pick first doc
+            did = next(iter(self.docs.keys()))
+            self._last_doc_id = did
+            return self.docs[did]
+        return 'No documents available.'
 
-        def lookup(self, term: str) -> str:
-            if self._last_doc_id is None:
-                raise ValueError('No last page searched.')
-            text = self.docs.get(self._last_doc_id, '')
-            for sent in text.split('.'):
-                if term.lower() in sent.lower():
-                    return sent.strip()
-            return 'Term not found in last page.'
+    def lookup(self, term: str) -> str:
+        if self._last_doc_id is None:
+            raise ValueError('No last page searched.')
+        text = self.docs.get(self._last_doc_id, '')
+        for sent in text.split('.'):
+            if term.lower() in sent.lower():
+                return sent.strip()
+        return 'Term not found in last page.'
+
 
 class DatasetIndexDocstore:
     def __init__(self, docs: dict):
