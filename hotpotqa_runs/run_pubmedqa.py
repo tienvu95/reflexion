@@ -283,48 +283,51 @@ def run(args, external_llm=None):
         llm_callable = llm_raw
         print('LLM instantiated:', llm_raw)
 
+    if getattr(llm_raw, 'model', None) is None or getattr(llm_raw, 'tokenizer', None) is None:
+        print('Notice: LLM instance does not expose model/tokenizer attributes. Confidence scoring and Brier metrics will be unavailable.')
+
     # Helper: compute relative probabilities for the discrete choices using
     # an underlying transformers-style model+tokenizer when available. Returns
     # a dict mapping choice->prob or None when scoring is not supported.
     def _score_choices_via_transformers(raw_llm, prompt: str, choices):
-        try:
-            # prefer explicit .model and .tokenizer attributes
-            model = getattr(raw_llm, 'model', None)
-            tokenizer = getattr(raw_llm, 'tokenizer', None)
-            if model is None or tokenizer is None:
-                return None
-            import torch
-            import math
-            import torch.nn.functional as F
+        # prefer explicit .model and .tokenizer attributes
+        model = getattr(raw_llm, 'model', None)
+        tokenizer = getattr(raw_llm, 'tokenizer', None)
+        if model is None or tokenizer is None:
+            if getattr(args, 'print_logit_debug', False):
+                print('Logit scoring skipped: LLM missing model/tokenizer attrs.')
+            return None
+        import math
+        import torch
+        import torch.nn.functional as F
 
+        max_len = getattr(args, 'max_seq_length', 8192)
+        try:
             device = next(model.parameters()).device
             logls = []
             for choice in choices:
                 full = prompt + choice
-                inputs = tokenizer(full, return_tensors='pt')
-                # move to device
+                inputs = tokenizer(full, return_tensors='pt', truncation=True, max_length=max_len)
                 inputs = {k: v.to(device) for k, v in inputs.items()}
                 with torch.no_grad():
                     outputs = model(**inputs, return_dict=True)
                     logits = outputs.logits  # (1, L, V)
                 ids = inputs['input_ids'][0]
-                # tokenized prompt length
-                prompt_ids = tokenizer(prompt, return_tensors='pt')['input_ids'][0]
+                prompt_ids = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)['input_ids'][0]
                 start = len(prompt_ids)
-                # sum log-prob of choice tokens (causal LM alignment)
                 log_lik = 0.0
                 for j in range(start, len(ids)):
-                    # logits at position j-1 predict token j
                     logp = F.log_softmax(logits[0, j-1], dim=-1)[ids[j]].item()
                     log_lik += logp
                 logls.append(log_lik)
-            # normalize to probabilities with softmax in log-space
             m = max(logls)
             exps = [math.exp(l - m) for l in logls]
             s = sum(exps)
             probs = [e / s for e in exps]
             return dict(zip(choices, probs))
-        except Exception:
+        except Exception as e:
+            if getattr(args, 'print_logit_debug', False):
+                print('Logit scoring failed:', type(e).__name__, e)
             return None
 
     debug_enabled = getattr(args, 'print_debug', True)
