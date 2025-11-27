@@ -176,6 +176,10 @@ class CoTAgent:
                 self.scratchpad += 'Answer is CORRECT'
             else:
                 self.scratchpad += 'Answer is INCORRECT'
+            if 'Reason:' not in self.scratchpad:
+                reason = self._generate_reason(argument)
+                if reason:
+                    self.scratchpad += f'\n{reason}'
             self.finished = True
             return
         else:
@@ -208,6 +212,16 @@ class CoTAgent:
             attempt += 1
         # return last output even if malformed; caller will detect invalid action
         return last_out
+
+    def _generate_reason(self, label: str) -> str:
+        try:
+            prompt = f"Question: {self.question}\nAbstract: {self.context}\nLabel: {label}\nReason: "
+            out = format_step(self.action_llm(prompt))
+            if not out.lower().startswith('reason:'):
+                out = 'Reason: ' + out
+            return out
+        except Exception:
+            return ''
     
     def _build_agent_prompt(self) -> str:
         return self.agent_prompt.format(
@@ -574,4 +588,3 @@ def normalize_answer(s):
 
 def EM(answer, key) -> bool:
     return normalize_answer(answer) == normalize_answer(key)
-
