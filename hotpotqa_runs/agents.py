@@ -101,6 +101,7 @@ class CoTAgent:
         self.self_reflect_llm = self_reflect_llm
         self.action_llm = action_llm
         self.force_finish_format = force_finish_format
+        self._debug_enabled: bool = False
         self.reflections: List[str] = []
         self.reflections_str = ''
         self.answer = ''
@@ -158,13 +159,15 @@ class CoTAgent:
         # Think
         self.scratchpad += f'\nThought:'
         self.scratchpad += ' ' + self.prompt_agent()
-        print(self.scratchpad.split('\n')[-1])
+        if self._debug_enabled:
+            print(self.scratchpad.split('\n')[-1])
 
         # Act
         self.scratchpad += f'\nAction:'
         action = self.prompt_agent()
         self.scratchpad += ' ' + action
-        print(self.scratchpad.split('\n')[-1])
+        if self._debug_enabled:
+            print(self.scratchpad.split('\n')[-1])
 
         action_type, argument = parse_action(action)
 
@@ -273,6 +276,7 @@ class ReactAgent:
         self.max_steps = max_steps
         self.agent_prompt = agent_prompt
         self.react_examples = WEBTHINK_SIMPLE6
+        self._debug_enabled: bool = False
 
         # If a docstore was provided, try to wrap it with langchain's DocstoreExplorer
         if docstore is None:
@@ -290,9 +294,10 @@ class ReactAgent:
                     traceback.print_exc()
                 except Exception:
                     pass
-                self.docstore = docstore
+        self.docstore = docstore
         self.llm = react_llm
         self.force_finish_format = force_finish_format
+        self._debug_enabled = False
 
         # tolerant tokenizer: try tiktoken, otherwise simple whitespace encoder
         try:
@@ -319,14 +324,16 @@ class ReactAgent:
         # Think
         self.scratchpad += f'\nThought {self.step_n}:'
         self.scratchpad += ' ' + self.prompt_agent()
-        print(self.scratchpad.split('\n')[-1])
+        if self._debug_enabled:
+            print(self.scratchpad.split('\n')[-1])
 
         # Act
         self.scratchpad += f'\nAction {self.step_n}:'
         action = self.prompt_agent()
         self.scratchpad += ' ' + action
         action_type, argument = parse_action(action)
-        print(self.scratchpad.split('\n')[-1])
+        if self._debug_enabled:
+            print(self.scratchpad.split('\n')[-1])
 
         # Observe
         self.scratchpad += f'\nObservation {self.step_n}: '
@@ -349,11 +356,13 @@ class ReactAgent:
             # Debug: report docstore presence and type
             try:
                 if self.docstore is None:
-                    print('DEBUG: ReactAgent.step - docstore is None when handling Search[{}]'.format(argument))
+                    if self._debug_enabled:
+                        print('DEBUG: ReactAgent.step - docstore is None when handling Search[{}]'.format(argument))
                     self.scratchpad += ' [No docstore configured]'
                 else:
                     try:
-                        print('DEBUG: ReactAgent.step - calling docstore.search; docstore type:', type(self.docstore))
+                        if self._debug_enabled:
+                            print('DEBUG: ReactAgent.step - calling docstore.search; docstore type:', type(self.docstore))
                     except Exception:
                         pass
                     try:
@@ -376,11 +385,13 @@ class ReactAgent:
         elif action_type == 'Lookup':
             try:
                 if self.docstore is None:
-                    print('DEBUG: ReactAgent.step - docstore is None when handling Lookup[{}]'.format(argument))
+                    if self._debug_enabled:
+                        print('DEBUG: ReactAgent.step - docstore is None when handling Lookup[{}]'.format(argument))
                     self.scratchpad += ' [No docstore configured] '
                 else:
                     try:
-                        print('DEBUG: ReactAgent.step - calling docstore.lookup; docstore type:', type(self.docstore))
+                        if self._debug_enabled:
+                            print('DEBUG: ReactAgent.step - calling docstore.lookup; docstore type:', type(self.docstore))
                     except Exception:
                         pass
                     try:
@@ -587,6 +598,12 @@ def parse_action(string):
 
 def format_step(step: str) -> str:
     return step.replace('\r', '').strip()
+
+def _needs_reason(text: str) -> bool:
+    for line in text.splitlines():
+        if line.strip().lower().startswith('reason:'):
+            return False
+    return True
 
 def _needs_reason(text: str) -> bool:
     for line in text.splitlines():
