@@ -6,7 +6,7 @@ except Exception:
     except Exception:
         from prompt_shim import PromptTemplate
 
-COT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
+COT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. Start by deciding the label (yes, no, or maybe) before writing any rationale. Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -158,5 +158,4 @@ reflect_prompt = PromptTemplate(
                         input_variables=["examples", "question", "scratchpad"],
                         template = REFLECT_INSTRUCTION,
                         )
-
 

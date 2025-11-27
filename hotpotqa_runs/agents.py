@@ -191,7 +191,7 @@ class CoTAgent:
         max_retries = 2
         attempt = 0
         last_out = ''
-        while attempt <= max_retries:
+    while attempt <= max_retries:
             out = format_step(self.action_llm(self._build_agent_prompt()))
             last_out = out
             action_type, argument = parse_action(out)
@@ -574,6 +574,5 @@ def normalize_answer(s):
 
 def EM(answer, key) -> bool:
     return normalize_answer(answer) == normalize_answer(key)
-
 
 
