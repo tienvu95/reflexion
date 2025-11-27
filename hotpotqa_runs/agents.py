@@ -216,18 +216,22 @@ class CoTAgent:
     def _generate_reason(self, label: str) -> str:
         llm = self.self_reflect_llm or self.action_llm
         prompt = (
-            "Provide a one-sentence justification for the answer.\n"
+            "Provide a single-sentence justification for the answer label.\n"
             f"Question: {self.question}\n"
             f"Abstract: {self.context}\n"
             f"Answer label: {label}\n"
-            "Respond in the format `Reason: ...`.\nReason: "
+            "Respond in the format `Reason: ...` and do not add anything after that sentence.\nReason: "
         )
         try:
             out = llm(prompt)
             out = out.strip()
-            if not out.lower().startswith('reason:'):
+            if 'Reason:' not in out:
                 out = 'Reason: ' + out
-            return out
+            reason = out.split('\n', 1)[0]
+            reason = reason.split('.', 1)[0].strip()
+            if not reason.endswith('.'):
+                reason += '.'
+            return reason
         except Exception:
             return f"Reason: {label} based on the evidence described above."
     
