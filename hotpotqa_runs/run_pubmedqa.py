@@ -685,12 +685,13 @@ def run(args, external_llm=None):
         scratchpad = getattr(agent, 'scratchpad', '')
         rationale_text = ''
         for line in reversed(scratchpad.splitlines()):
-            line = line.strip()
-            if not line:
+            if 'Reason:' not in line:
                 continue
-            if line.lower().startswith('reason:'):
-                rationale_text = line
-                break
+            reason_part = line.split('Reason:', 1)[1].strip()
+            if not reason_part:
+                continue
+            rationale_text = 'Reason: ' + reason_part
+            break
         if not rationale_text:
             rationale_text = f'Reason: {pred}.'
 
