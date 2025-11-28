@@ -1,123 +1,123 @@
 WEBTHINK_SIMPLE6 = """Question: Are group 2 innate lymphoid cells increased in chronic rhinosinusitis with nasal polyps or eosinophilia?
-Thought 1: I should review the background statement about CRS and ILC2 counts.
-Action 1: Search[group 2 innate lymphoid cells chronic rhinosinusitis]
-Observation 1: The abstract explains that 35 CRS patients were profiled and that ILC2 frequencies were associated with nasal polyps, tissue eosinophilia, and eosinophil-dominant CRS.
-Thought 2: I need confirmation that the investigators concluded ILC2s were elevated in the nasal polyp/eosinophilic groups.
-Action 2: Lookup[ILC2s were increased]
+Thought 1: I should search for the biopsy study that measured ILC2 frequencies in CRS.
+Action 1: Search[sinus mucosa ILC2 frequency nasal polyps]
+Observation 1: The abstract describes 35 CRS patients and reports that ILC2 frequencies tracked with nasal polyps, tissue eosinophilia, and eosinophil-dominant disease.
+Thought 2: I need a statement explicitly saying ILC2s were elevated in the polyp/eosinophilic groups.
+Action 2: Lookup[associated with nasal polyps]
 Observation 2: “ILC2 frequencies were associated with the presence of nasal polyps (P = 0.002) as well as high tissue eosinophilia (P = 0.004).”
-Thought 3: Since the study explicitly reports higher ILC2 counts in CRSwNP/eosinophilia, the answer is yes.
+Thought 3: Because the investigators linked higher ILC2 counts to CRSwNP and eosinophilia, the answer is yes.
 Action 3: Finish[yes]
 
-Question: Does admission hyperglycemia predict failed fibrinolysis in ST-elevation myocardial infarction?
-Thought 1: I should locate details about the retrospective STEMI cohort.
-Action 1: Search[admission hyperglycemia fibrinolysis failure STEMI]
-Observation 1: Among 304 STEMI patients, those with failed reperfusion had higher admission glucose (126 vs 110 mg/dL) and hyperglycemia independently predicted fibrinolysis failure (HR 4.79).
-Thought 2: Confirm that hyperglycemia remained an independent predictor.
-Action 2: Lookup[independent predictor]
-Observation 2: “Admission hyperglycemia was an independent predictive factor for failed reperfusion…”
-Thought 3: Therefore admission hyperglycemia is associated with failed fibrinolysis.
+Question: Does vagus nerve signaling contribute to steatohepatitis and obesity in PEMT-deficient mice?
+Thought 1: I should examine the hepatic vagotomy experiment in the PEMT knockout model.
+Action 1: Search[PEMT knockout hepatic vagotomy steatohepatitis]
+Observation 1: After hepatic vagotomy, PEMT-/- mice lost their protection from high-fat diet obesity and steatohepatitis, whereas sham controls stayed resistant.
+Thought 2: I want confirmation that interrupting vagal signals reversed both phenotypes.
+Action 2: Lookup[vagotomy normalized steatohepatitis]
+Observation 2: “Hepatic vagotomy abolished the protection against HFD-induced obesity and prevented steatohepatitis in Pemt(-/-) mice.”
+Thought 3: Since cutting the vagus changed both outcomes, vagal signals must contribute.
 Action 3: Finish[yes]
 
 Question: Do systematic reviews in emergency medicine journals routinely search clinical trial registries?
-Thought 1: I need the results of the cross-sectional review.
-Action 1: Search[systematic reviews emergency medicine clinical trial registries]
-Observation 1: Of 41 intervention-focused reviews, only 8 (20%) searched a trial registry, and half of those found relevant unpublished studies.
-Thought 2: Because only a small fraction searched registries, the answer is no.
+Thought 1: I will review how many of the 2013 intervention reviews searched registries.
+Action 1: Search[emergency medicine systematic review registry search frequency]
+Observation 1: Only 8 of 41 reviews (20%) documented registry searches, though half of those searches found unpublished trials.
+Thought 2: With only one-fifth performing the search, the practice is not routine.
 Action 2: Finish[no]
 
-Question: Do obese patients with idiopathic pulmonary fibrosis have higher 90-day mortality with bilateral lung transplantation?
-Thought 1: Look at OPTN registry results.
-Action 1: Search[idiopathic pulmonary fibrosis obesity bilateral lung transplantation 90-day]
-Observation 1: Among 3,389 IPF recipients, an interaction showed BMI >30 plus bilateral transplant increased 90-day mortality (OR 1.71).
-Thought 2: Confirm significance of the effect.
-Action 2: Lookup[1.71 times more likely]
-Observation 2: “Patients with BMI >30 kg/m2 who received BLT are 1.71 times more likely to die within 90 days…”
-Thought 3: That indicates obese BLT recipients have higher early mortality.
+Question: Does psammaplin A induce Sirtuin 1-dependent autophagic cell death in doxorubicin-resistant MCF-7 cells?
+Thought 1: I should look for whether PsA decreased SIRT1 activity and triggered autophagy markers.
+Action 1: Search[psammaplin A SIRT1 autophagy MCF-7/adr]
+Observation 1: The abstract says PsA inhibited SIRT1 more potently than sirtinol and increased autophagy proteins and DRAM expression.
+Thought 2: I want to confirm that autophagic death occurred in the resistant line and xenografts.
+Action 2: Lookup[autophagy-related proteins increased]
+Observation 2: “PsA markedly increased the expression levels of autophagy-related proteins…”
+Thought 3: Therefore PsA induced SIRT1-dependent autophagic cell death in the resistant cells.
 Action 3: Finish[yes]
 
-Question: Did restaging CT after neoadjuvant chemoradiation often change management in locally advanced rectal cancer?
-Thought 1: Review the retrospective cohort.
-Action 1: Search[restaging CT neoadjuvant chemoradiation rectal cancer management]
-Observation 1: Eighty-three of 91 patients had restaging CT; only four showed suspicious lesions and none of the scans changed surgical plans.
-Thought 2: Since no management changes occurred, the answer should be no.
+Question: Did restaging CT after neoadjuvant chemoradiation alter surgical management in locally advanced rectal cancer?
+Thought 1: I should recall how many scans detected new metastases and whether plans changed.
+Action 1: Search[restaging CT neoadjuvant rectal management change]
+Observation 1: Eighty-three of 91 patients underwent restaging CT, but only four scans showed suspicious distant lesions and none altered surgery.
+Thought 2: Since no surgical plans changed, the answer should be no.
 Action 2: Finish[no]
 
-Question: Are newspaper stories about do-not-attempt-resuscitation decisions mainly concerned with lack of patient involvement?
-Thought 1: Find the newspaper analysis.
-Action 1: Search[DNACPR newspaper coverage patient involvement]
-Observation 1: Reviewing 331 UK articles showed the predominant theme was perceived lack of patient (and later surrogate) involvement in DNACPR orders.
-Thought 2: Therefore the reports emphasize missing consultation.
-Action 2: Finish[yes]"""
+Question: Is cell death in mesial temporal sclerosis clearly apoptotic?
+Thought 1: I will check whether hippocampi from mesial temporal sclerosis patients showed apoptotic markers.
+Action 1: Search[MTS hippocampus apoptosis TUNEL Bax fractin]
+Observation 1: Neurons had increased Bax and caspase-cleaved actin, but no TUNEL-positive cells or apoptotic nuclear morphology were detected.
+Thought 2: Because some apoptotic pathways were activated but DNA fragmentation was absent, the evidence is inconclusive.
+Action 2: Finish[maybe]"""
 
 REFLECTIONS = """
 Previous Trial:
-Question: Do nitrogen oxide levels correlate with disease activity in Egyptian rheumatoid arthritis patients?
-Thought 1: I noted rheumatoid arthritis patients had higher nitric oxide than controls but did not analyze subgroups.
+Question: Are secretory phospholipases A2 secreted from ciliated cells and able to stimulate goblet cells?
+Thought 1: I noted that IL-13-transformed goblet cells increased mucin when exposed to sPLA2, but I forgot to mention that only the ciliated-enriched cultures released the enzymes apically.
 Action 1: Finish[yes]
 
-Reflection: I should explicitly cite that nitric oxide levels were significantly higher in active disease (mean 82 µmol/L vs 36 µmol/L) and correlated with DAS-28, ESR, and CRP, showing the relationship rather than just stating “yes.”
+Reflection: Next time I should reference the evidence that ciliated cells expressed sPLA2 V and X, secreted them to the lumen, and that those enzymes triggered cysteinyl leukotriene and mucin release from the goblet cells—clearly supporting “yes.”
 
 Previous Trial:
-Question: Is ΔNp63 expression protective against progression in high grade T1 bladder cancer?
-Thought 1: I focused on overall prognosis and ignored the exact progression statistic.
+Question: Is the cell death in mesial temporal sclerosis apoptotic?
+Thought 1: I answered maybe but failed to cite the conflicting markers.
 Action 1: Finish[maybe]
 
-Reflection: The study reported 0% progression when ΔNp63 was preserved versus 21% when it was lost. I should restate those numbers and conclude definitively that ΔNp63 expression marks patients at lower risk.
+Reflection: I should emphasize that Bax and caspase activity increased, yet no TUNEL-positive neurons or apoptotic nuclear morphology were detected, explaining why apoptosis cannot be confirmed.
 """
 
 COTQA_SIMPLE6 = """
-Question: Does methylation of the FGFR2 gene associate with high birth-weight centile?
-Thought: The study found FGFR2 CpG methylation remained linked to high birth weight centiles after adjusting for genetics, so yes.
+Question: Does hepatic vagotomy eliminate the protection of PEMT-deficient mice against high-fat diet steatohepatitis?
+Thought: Hepatic vagotomy restored obesity and normalized phospholipids while preventing steatohepatitis in PEMT-/- mice, so vagal signals are required for the phenotype.
 Action: Finish[yes]
 
-Question: Does the Boston keratoprosthesis provide wide depth of focus?
-Thought: The through-focus curve was flatter like a 2–3 mm pupil, giving pseudoaccommodation, so yes.
+Question: Are secretory phospholipases A2 released by ciliated airway cells and able to stimulate goblet cells?
+Thought: Ciliated-enriched cultures secreted sPLA2 V and X to the lumen, which triggered cysteinyl leukotriene and mucin release from IL-13-transformed goblet cells, so yes.
 Action: Finish[yes]
 
-Question: Are hidradenitis suppurativa patients burdened with substantial comorbidities?
-Thought: Chart review showed higher rates of smoking, arthropathies, dyslipidemia, etc., so yes.
-Action: Finish[yes]
-
-Question: Does nitric oxide rise with rheumatoid arthritis activity?
-Thought: Active patients had higher nitric oxide and it correlated with DAS-28, so yes.
-Action: Finish[yes]
-
-Question: Do restaging CT scans frequently alter management after neoadjuvant chemoradiation in rectal cancer?
-Thought: Only 5% showed suspicious lesions and none changed surgery, so no.
+Question: Do systematic reviews in emergency medicine routinely search clinical trial registries?
+Thought: Only 8 of 41 intervention reviews documented registry searches, meaning the practice is uncommon.
 Action: Finish[no]
 
-Question: Are clinical high grade T1 bladder tumors with ΔNp63 expression less likely to progress?
-Thought: Tumors retaining ΔNp63 had zero progression vs 21% otherwise, so yes.
+Question: Does admission hyperglycemia predict failed fibrinolysis in ST-elevation myocardial infarction?
+Thought: Failed reperfusion was associated with higher admission glucose (126 vs 110 mg/dL) and hyperglycemia independently predicted failure (HR 4.79), so yes.
+Action: Finish[yes]
+
+Question: Is the cell death observed in mesial temporal sclerosis definitively apoptotic?
+Thought: Bax expression and caspase activity increased, yet no TUNEL-positive nuclei or apoptotic morphology were detected, so the answer is maybe.
+Action: Finish[maybe]
+
+Question: Does hidradenitis suppurativa carry a substantial comorbidity burden?
+Thought: HS patients had higher prevalences of smoking, metabolic syndrome, arthropathies, PCOS, and psychiatric disorders than controls, so yes.
 Action: Finish[yes]"""
 
 COT_SIMPLE_REFLECTION = """
-Question: Does promoter variant rs2301228 in NCAM1 confer schizophrenia risk?
-Thought: I answered maybe because the mechanism wasn’t clear.
+Question: Does hepatic vagotomy contribute to the development of steatohepatitis and obesity in PEMT-deficient mice?
+Thought: I answered maybe because I only mentioned that PEMT-/- mice resist obesity.
 Action: Finish[maybe]
 
-Reflection: The case-control study replicated the rs2301228 association, showed risk allele reduced NCAM1 transcription, and serum levels were lower in patients. I should answer yes based on that evidence.
+Reflection: I should cite that hepatic vagotomy abolished the protection against high-fat diet obesity and prevented steatohepatitis in PEMT-/- mice, clearly supporting a “yes” answer.
 
-Question: Are Syk phosphorylation and TRAF6 overexpression linked in systemic lupus erythematosus B cells?
-Thought: I incorrectly said no because I mixed up signaling pathways.
+Question: Do systematic reviews in emergency medicine routinely search clinical trial registries?
+Thought: I answered no but failed to quote the actual proportion.
 Action: Finish[no]
 
-Reflection: Flow cytometry showed both Syk phosphorylation and TRAF6 expression were elevated and correlated, and inhibition of Syk reduced TRAF6. I must connect those results before concluding.
+Reflection: I should explicitly report that only 8 of 41 intervention reviews (20%) documented registry searches to justify the “no.”
 """
 
-COT = """Relevant PubMed Context: The chronic rhinosinusitis study profiled 35 surgical patients and controls. Group 2 innate lymphoid cell (ILC2) frequencies were higher in eosinophilic CRS, correlated with nasal polyps (P = 0.002), tissue eosinophilia (P = 0.004), blood eosinophilia (P = 0.005), and asthma, and tracked with worse nasal symptom scores.
-Question: Are ILC2s increased in chronic rhinosinusitis with nasal polyps/eosinophilia?
-Thought: The trial explicitly links higher ILC2 levels to nasal polyps and eosinophilic disease, so yes.
+COT = """Relevant PubMed Context: The chronic rhinosinusitis biopsy study counted ILC2s in 35 patients and 9 controls. ILC2 frequencies were linked to nasal polyps (P = 0.002), tissue eosinophilia (P = 0.004), eosinophil-dominant CRS (P = 0.001), and worse symptom scores.
+Question: Are ILC2s increased in chronic rhinosinusitis with nasal polyps or eosinophilia?
+Thought: Because ILC2 levels were significantly higher in CRSwNP and eosinophilic disease, the answer is yes.
 Action: Finish[yes]
 
-Relevant PubMed Context: In a retrospective cohort of 304 STEMI patients treated with fibrinolysis, admission glucose was higher in failed reperfusion (126 vs 110 mg/dL, p<0.001). Hyperglycemia independently predicted failed fibrinolysis (HR 4.79), alongside longer delay to treatment and anterior MI.
-Question: Is admission hyperglycemia associated with failed reperfusion after fibrinolysis?
-Thought: Because hyperglycemia remained an independent predictor, the answer is yes.
-Action: Finish[yes]
-
-Relevant PubMed Context: A review of 41 emergency medicine intervention systematic reviews (2013) found only 8 searched clinical trial registries, though half of those searches identified unpublished studies.
-Question: Do emergency medicine systematic reviews routinely search trial registries?
-Thought: Since only 20% included registry searches, the answer is no.
+Relevant PubMed Context: Only 8 of 41 emergency medicine intervention reviews in 2013 documented registry searches, though half of those searches uncovered unpublished trials.
+Question: Do emergency medicine systematic reviews routinely search clinical trial registries?
+Thought: With just 20% conducting a search, registry queries are not routine.
 Action: Finish[no]
+
+Relevant PubMed Context: Temporal lobes resected from mesial temporal sclerosis patients showed increased Bax and fractin expression, but no TUNEL-positive cells or apoptotic nuclear morphology.
+Question: Is cell death in mesial temporal sclerosis clearly apoptotic?
+Thought: Caspase activation was present but DNA fragmentation was absent, so the evidence neither confirms nor refutes apoptosis.
+Action: Finish[maybe]
 """
 
 COT_REFLECT = """
