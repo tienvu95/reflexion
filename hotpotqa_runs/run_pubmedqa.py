@@ -439,6 +439,23 @@ def run(args, external_llm=None):
 
         return 'maybe'
 
+    def _sanitize_repeated_tokens(text: str) -> str:
+        """Collapse or remove repeated training artifacts like 'END OF EXERCISE' sequences.
+
+        This helps prevent models from echoing excessive repeated markers that
+        pollute the agent's actions and cause parsing failures.
+        """
+        if not text:
+            return text
+        import re
+        # collapse many repeated 'END OF EXERCISE' occurrences to a single marker
+        text = re.sub(r'(END OF EXERCISE\.?\s*){2,}', 'END OF EXERCISE. ', text, flags=re.IGNORECASE)
+        # remove long runs of the token 'END OF EXERCISE.' repeated on one line
+        text = re.sub(r'(END OF EXERCISE\.?\s*){10,}', 'END OF EXERCISE. ', text, flags=re.IGNORECASE)
+        # also strip weird control characters and excessive whitespace
+        text = re.sub(r'\s{3,}', ' ', text)
+        return text.strip()
+
     # Choose agent type: use ReactAgent as default
     if args.agent == 'react':
         AgentClass = ReactAgent
@@ -485,6 +502,11 @@ def run(args, external_llm=None):
         total += 1
         question = extract_text(ex.get(q_field))
         context = extract_text(ex.get(c_field)) if c_field else ''
+        # sanitize repeated training/exercise markers that may appear in dataset
+        try:
+            context = _sanitize_repeated_tokens(context)
+        except Exception:
+            pass
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
         gold_label = _canon_label(true_answer)
         long_answer_text = extract_text(ex.get(long_field)) if long_field else ''
@@ -706,16 +728,18 @@ def run(args, external_llm=None):
                         pass
                     # Ensure the agent's scratchpad reflects the enforced label
                     try:
-                        s = getattr(agent, 'scratchpad', '')
+                        s = getattr(agent, 'scratchpad', '') or ''
                         import re
-                        # remove any existing Finish[...] lines
-                        s = re.sub(r'Finish\[.*?\]', '', s)
-                        if 'Reason:' in s:
-                            # remove old Reason lines
-                            s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                        # remove any existing Finish[...] and Action: Finish[...] lines
+                        s = re.sub(r'(?im)^.*Finish\[.*?\].*$\n?', '', s)
+                        s = re.sub(r'(?im)^.*Action:.*Finish\[.*?\].*$\n?', '', s)
+                        # remove any old Reason: lines
+                        s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                        # collapse any repeated 'END OF EXERCISE' artifacts
+                        s = _sanitize_repeated_tokens(s)
                         # append enforced Finish and Reason lines
                         enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
-                        agent.scratchpad = s + enforced
+                        agent.scratchpad = (s + enforced).strip()
                     except Exception:
                         pass
                     # We enforced a confident label — no further reflexion needed.
@@ -855,11 +879,15 @@ def run(args, external_llm=None):
                     try:
                         s = getattr(agent, 'scratchpad', '')
                         import re
-                        s = re.sub(r'Finish\[.*?\]', '', s)
-                        if 'Reason:' in s:
-                            s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                        # remove any existing Finish[...] and Action: Finish[...] lines
+                        s = re.sub(r'(?im)^.*Finish\[.*?\].*$\n?', '', s)
+                        s = re.sub(r'(?im)^.*Action:.*Finish\[.*?\].*$\n?', '', s)
+                        # remove any old Reason: lines
+                        s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                        # collapse repeated tokens
+                        s = _sanitize_repeated_tokens(s)
                         enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
-                        agent.scratchpad = s + enforced
+                        agent.scratchpad = (s + enforced).strip()
                     except Exception:
                         pass
         except Exception:
