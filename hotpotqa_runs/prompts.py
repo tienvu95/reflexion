@@ -33,9 +33,32 @@ Here are some examples:
 
 Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
+COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure.
 
-COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure. Use complete sentences and remember to restate when the `Reason:` justification should be used.  
-Here are some examples:
+If your reflection identifies a corrected label, you MUST include an explicit recommendation line in one of the following exact forms (choose one):
+- `Finish[yes]` or `Finish[no]` or `Finish[maybe]`
+- or `Recommendation: Finish[yes|no|maybe]`
+
+If you include a recommended label, also include a one-line justification prefixed with `Reason:` explaining why that label is correct based on the evidence. These recommendation lines will be used to instruct the agent on a rerun, so please follow the format exactly.
+
+Use complete sentences. Here are some examples:
+{examples}
+(END OF EXAMPLES)
+
+Previous trial:
+Relevant PubMed Context: {context}
+Question: {question}{scratchpad}
+
+Reflection:"""
+COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure.
+
+If your reflection identifies a corrected label, you MUST include an explicit recommendation line in one of the following exact forms (choose one):
+- `Finish[yes]` or `Finish[no]` or `Finish[maybe]`
+- or `Recommendation: Finish[yes|no|maybe]`
+
+If you include a recommended label, also include a one-line justification prefixed with `Reason:` explaining why that label is correct based on the evidence. These recommendation lines will be used to instruct the agent on a rerun, so please follow the format exactly.
+
+Use complete sentences. Here are some examples:
 {examples}
 (END OF EXAMPLES)
 
@@ -162,9 +185,12 @@ Question: {question}{scratchpad}"""
 
 REFLECTION_HEADER = 'You have attempted to answer following question before and failed. The following reflection(s) give a plan to avoid failing to answer the question in the same way you did previously. Use them to improve your strategy of correctly answering the given question.\n'
 REFLECTION_AFTER_LAST_TRIAL_HEADER = 'The following reflection(s) give a plan to avoid failing to answer the question in the same way you did previously. Use them to improve your strategy of correctly answering the given question.\n'
+
 LAST_TRIAL_HEADER = 'You have attempted to answer the following question before and failed. Below is the last trial you attempted to answer the question.\n'
 
-REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you had access to a biomedical docstore (PubMed context or Wikipedia fallback) and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or exhausted your reasoning steps. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the biomedical evidence that mitigates the same failure. Use complete sentences.  
+REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you had access to a biomedical docstore (PubMed context or Wikipedia fallback) and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or exhausted your reasoning steps. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the biomedical evidence that mitigates the same failure. Use complete sentences.
+If your reflection yields a corrected answer recommendation, you MUST include an explicit recommendation line using one of the exact forms: `Finish[yes]`, `Finish[no]`, `Finish[maybe]` or `Recommendation: Finish[yes|no|maybe]`. If you include such a recommendation, also add a one-line `Reason:` justification for the recommended label. These lines will be parsed and may be used to instruct the agent to adopt the corrected label on a rerun — please follow the format exactly.
+
 Here are some examples:
 {examples}
 

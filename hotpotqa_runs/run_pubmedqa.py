@@ -757,7 +757,22 @@ def run(args, external_llm=None):
                         except Exception:
                             pass
                         # rerun without resetting to preserve context/scratchpad
-                        agent.run(reset=False)
+                        # Some agent.run signatures (e.g., CoTAgent.run) do not
+                        # accept a `reset` kwarg. Call safely by inspecting the
+                        # callable signature and dropping unsupported kwargs.
+                        try:
+                            import inspect
+                            sig = inspect.signature(agent.run)
+                            run_kwargs = {'reset': False}
+                            supported = {k for k in sig.parameters.keys()}
+                            filtered = {k: v for k, v in run_kwargs.items() if k in supported}
+                            agent.run(**filtered)
+                        except Exception:
+                            try:
+                                agent.run()
+                            except Exception:
+                                # If rerun fails, continue gracefully.
+                                pass
                         pred = getattr(agent, 'answer', '')
                     except Exception as e:
                         print('Reflection attempt failed:', e)
