@@ -704,6 +704,20 @@ def run(args, external_llm=None):
                                 print('Could not synthesize Reason line:', e_reason)
                     except Exception:
                         pass
+                    # Ensure the agent's scratchpad reflects the enforced label
+                    try:
+                        s = getattr(agent, 'scratchpad', '')
+                        import re
+                        # remove any existing Finish[...] lines
+                        s = re.sub(r'Finish\[.*?\]', '', s)
+                        if 'Reason:' in s:
+                            # remove old Reason lines
+                            s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                        # append enforced Finish and Reason lines
+                        enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
+                        agent.scratchpad = s + enforced
+                    except Exception:
+                        pass
                     # We enforced a confident label — no further reflexion needed.
                     break
 
@@ -836,6 +850,18 @@ def run(args, external_llm=None):
                     except Exception:
                         if getattr(args, 'print_logit_debug', False):
                             print('Could not synthesize final Reason line during override')
+                    # update agent scratchpad to reflect enforced label so
+                    # downstream canonicalization honors the override
+                    try:
+                        s = getattr(agent, 'scratchpad', '')
+                        import re
+                        s = re.sub(r'Finish\[.*?\]', '', s)
+                        if 'Reason:' in s:
+                            s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                        enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
+                        agent.scratchpad = s + enforced
+                    except Exception:
+                        pass
         except Exception:
             pass
         # Some agents may leave answer empty; try to extract Finish[...] from scratchpad
