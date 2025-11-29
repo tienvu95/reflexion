@@ -862,11 +862,15 @@ def run(args, external_llm=None):
                 argmax_label = map_token_to_label.get(argmax_token, 'maybe')
                 argmax_prob = float(final_confs.get(argmax_token, 0.0))
                 threshold = getattr(args, 'confidence_threshold', 0.6)
-                if getattr(args, 'print_logit_debug', False):
+                if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
                     print(f'Final scoring choices: {final_confs}  argmax={argmax_label} ({argmax_prob:.4f})')
-                if argmax_prob >= threshold and argmax_label != pred:
-                    if getattr(args, 'print_logit_debug', False):
-                        print(f'Overriding final prediction from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
+                # Decide whether to override: either confidence meets threshold
+                # OR user requested unconditional force via CLI flag.
+                do_force = bool(getattr(args, 'force_argmax_final', False)) or (argmax_prob >= threshold and argmax_label != pred)
+                if do_force:
+                    mode = 'FORCED' if getattr(args, 'force_argmax_final', False) else 'threshold'
+                    if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                        print(f'Overriding final prediction ({mode}) from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
                     pred = argmax_label
                     enforced_label = pred
                     try:
@@ -1103,6 +1107,7 @@ if __name__ == '__main__':
     p.add_argument('--print-debug', dest='print_debug', action='store_true', help='Print verbose debug info (default)')
     p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
     p.add_argument('--print-logit-debug', action='store_true', help='Print yes/no/maybe probability scores when evaluating confidence')
+    p.add_argument('--force-argmax-final', action='store_true', help='Force final predicted label to the transformers argmax when final scoring is available')
     p.set_defaults(print_debug=True, print_logit_debug=False)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
     args = p.parse_args()
