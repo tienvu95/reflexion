@@ -977,6 +977,21 @@ def run(args, external_llm=None):
             agent.answer = pred
         except Exception:
             pass
+        # Last-resort: ensure any programmatic enforced_label survives into
+        # the saved output. This guards against agents re-appending old
+        # Finish[...] lines into their scratchpad after we canonicalize.
+        try:
+            if enforced_label is not None and pred != enforced_label:
+                if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                    print(f'Final override before save: setting pred from "{pred}" to enforced_label "{enforced_label}"')
+                pred = enforced_label
+                try:
+                    agent.answer = pred
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         pred_labels.append(pred)
         gold_labels.append(gold_label)
 
