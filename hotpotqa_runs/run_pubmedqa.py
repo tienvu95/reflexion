@@ -647,11 +647,66 @@ def run(args, external_llm=None):
                 cur_conf = float(confs.get(token_label, 0.0))
                 if getattr(args, 'print_logit_debug', False):
                     print(f'Confidence for prediction "{cur_label}" = {cur_conf:.4f} (choices: {confs})')
-
-                # If confidence meets threshold, stop retrying. If confidence did
-                # not improve compared to previous attempt, also stop to avoid
-                # infinite/reflexive loops. Otherwise, attempt one reflexion and rerun.
+                # If the model's top-logit choice meets the threshold, enforce
+                # that choice as the final prediction (strong guiding principle).
+                # Otherwise, if confidence meets threshold for the current
+                # prediction, stop retrying. If confidence did not improve
+                # compared to previous attempt, also stop to avoid
+                # infinite/reflexive loops. Otherwise, attempt one reflexion
+                # and rerun.
                 threshold = getattr(args, 'confidence_threshold', 0.6)
+
+                # Determine argmax token/label
+                try:
+                    map_token_to_label = {' yes': 'yes', ' no': 'no', ' maybe': 'maybe'}
+                    argmax_token = max(confs, key=lambda k: confs.get(k, 0.0))
+                    argmax_label = map_token_to_label.get(argmax_token, 'maybe')
+                    argmax_prob = float(confs.get(argmax_token, 0.0))
+                except Exception:
+                    argmax_label = None
+                    argmax_prob = 0.0
+
+                # If the top-logit choice is confident enough, force it as the
+                # final answer and produce a short Reason line from the LLM to
+                # align the agent's rationale with the enforced label.
+                if argmax_label is not None and argmax_prob >= threshold:
+                    if getattr(args, 'print_logit_debug', False):
+                        print(f'Enforcing top-logit label "{argmax_label}" with prob {argmax_prob:.4f}')
+                    try:
+                        pred = argmax_label
+                        try:
+                            agent.answer = pred
+                        except Exception:
+                            pass
+
+                        # Attempt to synthesize a concise Reason: line using the
+                        # same prompt context so evaluation has a matching rationale.
+                        try:
+                            justification_prompt = (scoring_prompt or '') + "\n" + f"Please output a single line beginning with 'Reason:' that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Only output the Reason line."
+                            raw_reason = llm_callable(justification_prompt)
+                            # Extract the first line that starts with 'Reason:' or
+                            # prefix if model returned plain text.
+                            reason_line = ''
+                            if raw_reason:
+                                for ln in raw_reason.splitlines():
+                                    if ln.strip().lower().startswith('reason:'):
+                                        reason_line = ln.strip()
+                                        break
+                                if not reason_line:
+                                    # fallback: take first non-empty line
+                                    first = next((ln.strip() for ln in raw_reason.splitlines() if ln.strip()), '')
+                                    if first:
+                                        reason_line = 'Reason: ' + first
+                            if reason_line:
+                                rationale_text = reason_line
+                        except Exception as e_reason:
+                            if getattr(args, 'print_logit_debug', False):
+                                print('Could not synthesize Reason line:', e_reason)
+                    except Exception:
+                        pass
+                    # We enforced a confident label — no further reflexion needed.
+                    break
+
                 if cur_conf >= threshold:
                     break
                 if cur_conf <= prev_conf:
@@ -663,6 +718,44 @@ def run(args, external_llm=None):
                     try:
                         strat = map_reflexion_str(args.reflexion_strategy)
                         agent.reflect(strat)
+                        # If the reflection text contains an explicit corrected
+                        # label (e.g., Finish[no] or the words 'correct answer'
+                        # with yes/no/maybe), inject an instruction into the
+                        # agent's scratchpad so the agent is asked in-band to
+                        # adopt that label on rerun.
+                        try:
+                            import re
+                            refl_text = ''
+                            if hasattr(agent, 'reflections') and agent.reflections:
+                                refl_text = '\n'.join(agent.reflections)
+                            elif getattr(agent, 'reflections_str', None):
+                                refl_text = agent.reflections_str
+                            # look for Finish[...] or explicit label mentions
+                            m = re.search(r'Finish\[\s*(yes|no|maybe)\s*\]', refl_text, flags=re.IGNORECASE)
+                            forced_label = None
+                            if m:
+                                forced_label = m.group(1).lower()
+                            else:
+                                # look for phrases like 'correct answer is X' or 'answer: X'
+                                m2 = re.search(r'(correct answer(?: is)?|answer(?: is)?:)\s*(yes|no|maybe)', refl_text, flags=re.IGNORECASE)
+                                if m2:
+                                    forced_label = m2.group(2).lower()
+                            if forced_label:
+                                instr = f"\nInstruction: Adopt the corrected label Finish[{forced_label}] and then output a single line 'Finish[{forced_label}]' followed by a separate 'Reason:' line citing key evidence."
+                                try:
+                                    agent.scratchpad += instr
+                                    if getattr(args, 'print_debug', False):
+                                        print('Injected in-band instruction to agent to adopt label:', forced_label)
+                                except Exception:
+                                    # best-effort: set a private hint
+                                    try:
+                                        setattr(agent, '_injected_instruction', instr)
+                                        if getattr(args, 'print_debug', False):
+                                            print('Stored injected instruction on agent._injected_instruction')
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
                         # rerun without resetting to preserve context/scratchpad
                         agent.run(reset=False)
                         pred = getattr(agent, 'answer', '')
