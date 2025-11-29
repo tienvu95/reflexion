@@ -6,7 +6,12 @@ except Exception:
     except Exception:
         from prompt_shim import PromptTemplate
 
-COT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe). After emitting the label, write a short justification prefixed with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
+COT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+IMPORTANT OUTPUT FORMAT (must follow exactly):
+- End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
+- Immediately on the next line, output `Reason: <brief justification>` that cites the key evidence from the provided context.
+
+Do not place the final label or the Reason on the same line as any other text. Thought can be used for intermediate reasoning. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -14,7 +19,12 @@ Here are some examples:
 Relevant PubMed Context: {context} 
 Question: {question}{scratchpad}"""
 
-COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe) and then provide a short justification prefixed with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
+COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+IMPORTANT OUTPUT FORMAT (must follow exactly):
+- End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context.
+
+Do not include the final label or the Reason on the same line as any other commentary. Thought can be used for intermediate reasoning. Always rely on the provided context.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -50,7 +60,12 @@ cot_reflect_prompt = PromptTemplate(
                         template = COT_REFLECT_INSTRUCTION,
                         )
 
-COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe). After writing the label, provide a brief justification starting with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
+COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+IMPORTANT OUTPUT FORMAT (must follow exactly):
+- End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context.
+
+Do not place the final label or the Reason on the same line as other commentary. Thought can be used for intermediate reasoning. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -58,7 +73,12 @@ Here are some examples:
 Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by having a Thought, then Finish with your answer. First decide the label (yes, no, or maybe), and after the label provide a short justification starting with "Reason:". Thought can reason about the PubMed abstract context and the question. Finish[answer] returns the answer and finishes the task. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
+COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+IMPORTANT OUTPUT FORMAT (must follow exactly):
+- End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context.
+
+Do not include the final label or Reason on the same line as any other text. Thought can be used for intermediate reasoning. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -94,10 +114,15 @@ cot_simple_reflect_prompt = PromptTemplate(
 
 
 REACT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
-(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
+(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
-(3) Finish[answer], which returns the answer and finishes the task. When you finish, the answer must be yes, no, or maybe followed by a short justification prefixed with "Reason:".
-You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe, then supply the Reason line.
+(3) Finish[answer], which returns the answer and finishes the task.
+
+IMPORTANT OUTPUT FORMAT (must follow exactly):
+- When you choose `Finish`, output a single line `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
+- Immediately on the next line, output `Reason: <brief justification>` that cites the supporting evidence.
+
+Do not include extra commentary on the same lines as `Finish[...]` or `Reason:`. Base your reasoning on retrieved biomedical evidence and finish with yes, no, or maybe followed by the Reason line.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -105,12 +130,16 @@ Question: {question}{scratchpad}"""
 
 # Stronger instruction variant that enforces Action formatting strictly
 REACT_INSTRUCTION_STRICT = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
-(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
+(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
-(3) Finish[answer], which returns the answer and finishes the task. When you choose Finish, output yes, no, or maybe and immediately add a "Reason:" line that briefly cites the supporting evidence.
+(3) Finish[answer], which returns the answer and finishes the task.
 
-IMPORTANT: When you output an Action, OUTPUT EXACTLY one line that begins with `Action:` followed by one of the three action forms above (for example: `Action: Search[Barack Obama]` or `Action: Finish[yes]`). Do not include extra commentary on the same line. If you want to reason, put it under `Thought:` lines only.
-Only finish with the labels yes, no, or maybe.
+IMPORTANT OUTPUT FORMAT (must follow exactly):
+- When you output an `Action: Finish[...]`, the next two lines must be exactly:
+    - `Finish[<label>]` where `<label>` is `yes`, `no`, or `maybe`.
+    - `Reason: <brief justification>` citing supporting evidence.
+
+When you output any `Action`, OUTPUT EXACTLY one line that begins with `Action:` followed by one of the three action forms above (for example: `Action: Search[term]` or `Action: Finish[yes]`). Do not include extra commentary on the same line. If you want to reason, put it under `Thought:` lines only. Only finish with the labels yes, no, or maybe.
 
 Here are some examples:
 {examples}
@@ -119,9 +148,9 @@ Here are some examples:
 Question: {question}{scratchpad}"""
 
 REACT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
-(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage. If not found, it will return similar entries to search.
+(1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
-(3) Finish[answer], which returns the answer and finishes the task, then you must add a concise "Reason:" line grounded in the retrieved evidence.
+(3) Finish[answer], which returns the answer and finishes the task and must be followed by a `Reason:` line grounded in the retrieved evidence.
 You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe followed by a Reason line.
 Here are some examples:
 {examples}
