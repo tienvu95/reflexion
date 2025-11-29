@@ -635,6 +635,7 @@ def run(args, external_llm=None):
         # transformers model+tokenizer is available. If confidence is low,
         # attempt reflexion (if supported) and rerun to improve confidence.
         pred = getattr(agent, 'answer', '')
+        enforced_label = None
         prob_dict_for_example = None
         try:
             max_attempts = getattr(args, 'max_reflect_attempts', 2)
@@ -696,6 +697,7 @@ def run(args, external_llm=None):
                         print(f'Enforcing top-logit label "{argmax_label}" with prob {argmax_prob:.4f}')
                     try:
                         pred = argmax_label
+                        enforced_label = pred
                         try:
                             agent.answer = pred
                         except Exception:
@@ -728,6 +730,12 @@ def run(args, external_llm=None):
                         pass
                     # Ensure the agent's scratchpad reflects the enforced label
                     try:
+                        if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                            print('--- Scratchpad BEFORE enforcement (attempt-level) ---')
+                            try:
+                                print(getattr(agent, 'scratchpad', '')[:2000])
+                            except Exception:
+                                print('<unprintable scratchpad>')
                         s = getattr(agent, 'scratchpad', '') or ''
                         import re
                         # remove any existing Finish[...] and Action: Finish[...] lines
@@ -739,9 +747,18 @@ def run(args, external_llm=None):
                         s = _sanitize_repeated_tokens(s)
                         # append enforced Finish and Reason lines
                         enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
-                        agent.scratchpad = (s + enforced).strip()
-                    except Exception:
-                        pass
+                        try:
+                            agent.scratchpad = (s + enforced).strip()
+                            if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                                print('--- Scratchpad AFTER enforcement (attempt-level) ---')
+                                try:
+                                    print(getattr(agent, 'scratchpad', '')[:2000])
+                                except Exception:
+                                    print('<unprintable scratchpad>')
+                        except Exception as e_sp:
+                            print('Warning: could not write enforced scratchpad (attempt-level):', type(e_sp).__name__, e_sp)
+                    except Exception as e:
+                        print('Warning: enforcement attempt-level failed:', type(e).__name__, e)
                     # We enforced a confident label — no further reflexion needed.
                     break
 
@@ -851,6 +868,7 @@ def run(args, external_llm=None):
                     if getattr(args, 'print_logit_debug', False):
                         print(f'Overriding final prediction from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
                     pred = argmax_label
+                    enforced_label = pred
                     try:
                         agent.answer = pred
                     except Exception:
@@ -877,6 +895,12 @@ def run(args, external_llm=None):
                     # update agent scratchpad to reflect enforced label so
                     # downstream canonicalization honors the override
                     try:
+                        if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                            print('--- Scratchpad BEFORE enforcement (final-pass) ---')
+                            try:
+                                print(getattr(agent, 'scratchpad', '')[:2000])
+                            except Exception:
+                                print('<unprintable scratchpad>')
                         s = getattr(agent, 'scratchpad', '')
                         import re
                         # remove any existing Finish[...] and Action: Finish[...] lines
@@ -887,9 +911,18 @@ def run(args, external_llm=None):
                         # collapse repeated tokens
                         s = _sanitize_repeated_tokens(s)
                         enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
-                        agent.scratchpad = (s + enforced).strip()
-                    except Exception:
-                        pass
+                        try:
+                            agent.scratchpad = (s + enforced).strip()
+                        except Exception as e_sp:
+                            print('Warning: could not write enforced scratchpad (final-pass):', type(e_sp).__name__, e_sp)
+                        if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                            print('--- Scratchpad AFTER enforcement (final-pass) ---')
+                            try:
+                                print(getattr(agent, 'scratchpad', '')[:2000])
+                            except Exception:
+                                print('<unprintable scratchpad>')
+                    except Exception as e:
+                        print('Warning: enforcement final-pass failed:', type(e).__name__, e)
         except Exception:
             pass
         # Some agents may leave answer empty; try to extract Finish[...] from scratchpad
@@ -922,6 +955,20 @@ def run(args, external_llm=None):
             rationale_text = f'Reason: {pred}.'
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
+        # If we programmatically enforced a label earlier (argmax override),
+        # apply it *after* canonicalization to prevent the scratchpad from
+        # clobbering our enforced decision.
+        try:
+            if enforced_label is not None:
+                if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
+                    print(f'Applying enforced_label override AFTER canonicalization: {enforced_label} (was {pred})')
+                pred = enforced_label
+                try:
+                    agent.answer = pred
+                except Exception:
+                    pass
+        except Exception:
+            pass
         try:
             agent.answer = pred
         except Exception:
