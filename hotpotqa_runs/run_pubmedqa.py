@@ -785,6 +785,59 @@ def run(args, external_llm=None):
         except Exception:
             pass
         prob_records.append((prob_dict_for_example, gold_label))
+        # Final enforcement pass: if we can score the agent's final prompt and
+        # the transformers argmax label is confident, override the agent's
+        # prediction to match the argmax. This ensures we don't end up with a
+        # freeform agent answer that contradicts high-confidence logits.
+        try:
+            final_scoring_prompt = None
+            try:
+                if hasattr(agent, '_build_agent_prompt'):
+                    final_scoring_prompt = agent._build_agent_prompt() + "\nAnswer:"
+            except Exception:
+                final_scoring_prompt = None
+            final_confs = None
+            if final_scoring_prompt is not None:
+                final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
+            if final_confs is not None:
+                # update prob record to final scoring
+                prob_records[-1] = (final_confs, gold_label)
+                map_token_to_label = {' yes': 'yes', ' no': 'no', ' maybe': 'maybe'}
+                argmax_token = max(final_confs, key=lambda k: final_confs.get(k, 0.0))
+                argmax_label = map_token_to_label.get(argmax_token, 'maybe')
+                argmax_prob = float(final_confs.get(argmax_token, 0.0))
+                threshold = getattr(args, 'confidence_threshold', 0.6)
+                if getattr(args, 'print_logit_debug', False):
+                    print(f'Final scoring choices: {final_confs}  argmax={argmax_label} ({argmax_prob:.4f})')
+                if argmax_prob >= threshold and argmax_label != pred:
+                    if getattr(args, 'print_logit_debug', False):
+                        print(f'Overriding final prediction from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
+                    pred = argmax_label
+                    try:
+                        agent.answer = pred
+                    except Exception:
+                        pass
+                    # attempt to synthesize a concise Reason line aligned to argmax
+                    try:
+                        justification_prompt = final_scoring_prompt + "\n" + f"Please output a single line beginning with 'Reason:' that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Only output the Reason line."
+                        raw_reason = llm_callable(justification_prompt)
+                        reason_line = ''
+                        if raw_reason:
+                            for ln in raw_reason.splitlines():
+                                if ln.strip().lower().startswith('reason:'):
+                                    reason_line = ln.strip()
+                                    break
+                            if not reason_line:
+                                first = next((ln.strip() for ln in raw_reason.splitlines() if ln.strip()), '')
+                                if first:
+                                    reason_line = 'Reason: ' + first
+                        if reason_line:
+                            rationale_text = reason_line
+                    except Exception:
+                        if getattr(args, 'print_logit_debug', False):
+                            print('Could not synthesize final Reason line during override')
+        except Exception:
+            pass
         # Some agents may leave answer empty; try to extract Finish[...] from scratchpad
         if not pred:
             # look for Finish[...] pattern in scratchpad
