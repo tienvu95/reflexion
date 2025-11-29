@@ -620,17 +620,20 @@ def run(args, external_llm=None):
             # previous confidence baseline
             prev_conf = -1.0
             while attempts < max_attempts:
-                # build a scoring prompt from the agent if possible
+                # build a scoring prompt from the agent if possible. Append an
+                # explicit suffix so we score the model's preference for the
+                # discrete labels robustly (the leading space in choices helps
+                # match tokenization like ' yes').
                 scoring_prompt = None
                 try:
                     if hasattr(agent, '_build_agent_prompt'):
-                        scoring_prompt = agent._build_agent_prompt()
+                        scoring_prompt = agent._build_agent_prompt() + "\nAnswer:"
                 except Exception:
                     scoring_prompt = None
 
                 confs = None
                 if scoring_prompt is not None:
-                    confs = _score_choices_via_transformers(llm_raw, scoring_prompt, ['yes', 'no', 'maybe'])
+                    confs = _score_choices_via_transformers(llm_raw, scoring_prompt, [' yes', ' no', ' maybe'])
                 if confs is None:
                     # scoring not available; break out
                     break
@@ -638,13 +641,21 @@ def run(args, external_llm=None):
 
                 # coerce current prediction to canonical label
                 cur_label = coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', ''))
-                cur_conf = float(confs.get(cur_label, 0.0))
+                # map canonical label to the scored token form
+                map_label_to_token = {'yes': ' yes', 'no': ' no', 'maybe': ' maybe'}
+                token_label = map_label_to_token.get(cur_label, ' maybe')
+                cur_conf = float(confs.get(token_label, 0.0))
                 if getattr(args, 'print_logit_debug', False):
-                    print(f'Confidence for prediction \"{cur_label}\" = {cur_conf:.4f} (choices: {confs})')
+                    print(f'Confidence for prediction "{cur_label}" = {cur_conf:.4f} (choices: {confs})')
 
-                # If confidence is acceptable, stop retrying
+                # If confidence meets threshold, stop retrying. If confidence did
+                # not improve compared to previous attempt, also stop to avoid
+                # infinite/reflexive loops. Otherwise, attempt one reflexion and rerun.
                 threshold = getattr(args, 'confidence_threshold', 0.6)
-                if cur_conf >= threshold or cur_conf > prev_conf:
+                if cur_conf >= threshold:
+                    break
+                if cur_conf <= prev_conf:
+                    # no improvement after last reflexion; give up
                     break
 
                 # otherwise attempt one reflexion and rerun
