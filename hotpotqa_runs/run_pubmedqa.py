@@ -898,7 +898,7 @@ def run(args, external_llm=None):
                 # If the top-logit choice is confident enough, force it as the
                 # final answer and produce a short Reason line from the LLM to
                 # align the agent's rationale with the enforced label.
-                if argmax_label is not None and argmax_prob >= threshold:
+                if (not bool(getattr(args, 'disable_confidence_enforcement', False))) and argmax_label is not None and argmax_prob >= threshold:
                     print(f'Enforcing top-logit label "{argmax_label}" with prob {argmax_prob:.4f}')
                     try:
                         pred = argmax_label
@@ -963,7 +963,7 @@ def run(args, external_llm=None):
                     # We enforced a confident label — no further reflexion needed.
                     break
 
-                if cur_conf >= threshold:
+                if (not bool(getattr(args, 'disable_confidence_enforcement', False))) and cur_conf >= threshold:
                     break
                 if cur_conf <= prev_conf:
                     # no improvement after last reflexion; give up
@@ -1096,8 +1096,10 @@ def run(args, external_llm=None):
                 if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
                     print(f'Final scoring choices: {final_confs}  argmax={argmax_label} ({argmax_prob:.4f})')
                 # Decide whether to override: either confidence meets threshold
-                # OR user requested unconditional force via CLI flag.
-                do_force = bool(getattr(args, 'force_argmax_final', False)) or (argmax_prob >= threshold and argmax_label != pred)
+                # OR user requested unconditional force via CLI flag. Respect disable flag.
+                do_force = (not bool(getattr(args, 'disable_confidence_enforcement', False))) and (
+                    bool(getattr(args, 'force_argmax_final', False)) or (argmax_prob >= threshold and argmax_label != pred)
+                )
                 if do_force:
                     mode = 'FORCED' if getattr(args, 'force_argmax_final', False) else 'threshold'
                     print(f'Overriding final prediction ({mode}) from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
@@ -1673,6 +1675,7 @@ if __name__ == '__main__':
     p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
     p.add_argument('--print-logit-debug', action='store_true', help='Print yes/no/maybe probability scores when evaluating confidence')
     p.add_argument('--force-argmax-final', action='store_true', help='Force final predicted label to the transformers argmax when final scoring is available')
+    p.add_argument('--disable-confidence-enforcement', action='store_true', help='Disable all confidence-based label enforcement (attempt-level and final-pass)')
     p.set_defaults(print_debug=True, print_logit_debug=False)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
     p.add_argument('--readability-min', type=float, default=6.0, help='Minimum Flesch-Kincaid grade to consider explanation acceptable')
