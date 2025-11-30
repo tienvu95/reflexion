@@ -1234,50 +1234,135 @@ def run(args, external_llm=None):
         try:
             if REWRITE_ON_READABILITY and textstat and rationale_text is not None and fk is not None:
                 if fk < READABILITY_MIN or fk > READABILITY_MAX:
-                    # instruct model to rewrite at target grade and keep gold label
+                    # Decide enforcement strategy: via reflexion (agent.reflect + rerun)
                     target_range = f"about {int(READABILITY_MIN)}th-{int(READABILITY_MAX)}th grade"
                     gold_for_rewrite = gold_label if gold_label in ('yes','no','maybe') else pred
-                    rewrite_instruction = (
-                        f"Rewrite the existing explanation to be in simple layperson language at {target_range}. "
-                        f"Keep the first-line answer fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second line beginning with 'Reason:' followed by the rewritten explanation."
-                    )
-                    rewrite_prompt = (scoring_prompt or '') + "\n" + rewrite_instruction + "\nPrevious explanation:\n" + rationale_text
+
+                    # Compute length targets (word counts) if long answer present and enforcement requested
+                    long_words = len(long_answer_text.split()) if long_answer_text else 0
+                    length_tol = float(getattr(args, 'length_tolerance', 0.2))
+                    enforce_length_flag = bool(getattr(args, 'enforce_length', False))
+                    enforce_reflexion_flag = bool(getattr(args, 'enforce_readability_reflexion', False))
+                    min_words = None
+                    max_words = None
+                    if enforce_length_flag and long_words > 0:
+                        min_words = max(1, int(long_words * (1.0 - length_tol)))
+                        max_words = max(1, int(long_words * (1.0 + length_tol)))
+
+                    # If user requested reflexion-based enforcement and agent supports reflect(), use that path
                     try:
-                        new_out = llm_callable(rewrite_prompt)
-                        # extract label and reason
-                        import re
-                        lines = [ln.strip() for ln in (new_out or '').splitlines() if ln.strip()]
-                        new_label = None
-                        new_reason = None
-                        if lines:
-                            m = re.search(r"\b(yes|no|maybe)\b", lines[0].lower())
-                            if m:
-                                new_label = m.group(1)
-                                new_reason = '\n'.join(lines[1:]).strip()
-                        if not new_reason:
-                            # fallback: attempt to pick Reason: line
-                            m2 = re.search(r'(?mi)^Reason:\s*(.*)$', new_out or '', flags=re.DOTALL)
-                            if m2:
-                                new_reason = m2.group(1).strip()
-                        # enforce gold label in any case
-                        if new_reason:
-                            rationale_text = 'Reason: ' + new_reason if not new_reason.lower().startswith('reason:') else new_reason
-                        else:
-                            # keep old rationale_text but annotate it
-                            rationale_text = rationale_text + '\n\n(Rewriting attempt failed; original explanation preserved)'
-                        # recompute readability metrics for updated explanation
+                        scoring_prompt_local = ''
                         try:
-                            fk_new = textstat.flesch_kincaid_grade(rationale_text)
-                            smog_new = textstat.smog_index(rationale_text)
-                            # append updated values
-                            fk_grades.append(fk_new)
-                            smog_indices.append(smog_new)
-                            readability_scores.append(textstat.flesch_reading_ease(rationale_text))
+                            if hasattr(agent, '_build_agent_prompt'):
+                                scoring_prompt_local = agent._build_agent_prompt() + "\nAnswer:"
                         except Exception:
-                            pass
-                    except Exception as e_rew:
-                        if getattr(args, 'print_debug', False):
-                            print('Rewrite attempt failed:', type(e_rew).__name__, e_rew)
+                            scoring_prompt_local = ''
+
+                        if enforce_reflexion_flag and hasattr(agent, 'reflect'):
+                            # Inject an instruction into the agent's scratchpad and ask it to reflect and then rerun
+                            instr = (
+                                f"\nInstruction: Please reflect and produce a revised reasoning trace that keeps the final decision Finish[{gold_for_rewrite}] and rewrites the 'Reason:' line to be in simple layperson language at {target_range}."
+                            )
+                            if min_words is not None and max_words is not None:
+                                instr += f" Ensure the rewritten explanation is about {min_words}-{max_words} words (approx.)."
+                            instr += " Output exactly one 'Finish[...]' line and one 'Reason:' line."
+                            try:
+                                agent.scratchpad += instr
+                            except Exception:
+                                try:
+                                    setattr(agent, '_injected_instruction', instr)
+                                except Exception:
+                                    pass
+                            # perform reflection and rerun to let the agent update its answer/rationale
+                            try:
+                                strat = map_reflexion_str(args.reflexion_strategy)
+                                agent.reflect(strat)
+                                # rerun without reset to preserve context
+                                try:
+                                    import inspect
+                                    sig = inspect.signature(agent.run)
+                                    run_kwargs = {'reset': False}
+                                    supported = {k for k in sig.parameters.keys()}
+                                    filtered = {k: v for k, v in run_kwargs.items() if k in supported}
+                                    agent.run(**filtered)
+                                except Exception:
+                                    try:
+                                        agent.run()
+                                    except Exception:
+                                        pass
+                                # extract updated rationale from scratchpad
+                                scratch = getattr(agent, 'scratchpad', '')
+                                new_rationale = ''
+                                try:
+                                    instr_pat_local = re.compile(r"do not include|do not output|do not add|don't include|don't output|do not mention", flags=re.IGNORECASE)
+                                    for line in reversed(scratch.splitlines()):
+                                        if 'Reason:' not in line:
+                                            continue
+                                        reason_part = line.split('Reason:', 1)[1].strip()
+                                        if not reason_part:
+                                            continue
+                                        if instr_pat_local.search(reason_part):
+                                            continue
+                                        if len(reason_part.split()) < 3:
+                                            continue
+                                        new_rationale = 'Reason: ' + reason_part
+                                        break
+                                except Exception:
+                                    new_rationale = ''
+                                if new_rationale:
+                                    rationale_text = new_rationale
+                                else:
+                                    # fallback to prompt-based rewrite below
+                                    pass
+                            except Exception as e_refl:
+                                if getattr(args, 'print_debug', False):
+                                    print('Reflexion-based enforcement failed:', type(e_refl).__name__, e_refl)
+
+                        # If we still don't have a suitable rewritten rationale (or reflexion not used), fall back to prompt-based rewrite
+                        if not (rationale_text and rationale_text.strip() and rationale_text.strip().lower().startswith('reason:')):
+                            # build rewrite instruction including length constraints when requested
+                            rewrite_instruction = (
+                                f"Rewrite the existing explanation to be in simple layperson language at {target_range}. "
+                                f"Keep the first-line answer fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second line beginning with 'Reason:' followed by the rewritten explanation."
+                            )
+                            if min_words is not None and max_words is not None:
+                                rewrite_instruction += f" The rewritten explanation should be about {min_words}-{max_words} words (approx.)."
+                            rewrite_prompt = (scoring_prompt_local or '') + "\n" + rewrite_instruction + "\nPrevious explanation:\n" + rationale_text
+                            try:
+                                new_out = llm_callable(rewrite_prompt)
+                                # extract label and reason
+                                import re as _re
+                                lines = [ln.strip() for ln in (new_out or '').splitlines() if ln.strip()]
+                                new_label = None
+                                new_reason = None
+                                if lines:
+                                    m = _re.search(r"\b(yes|no|maybe)\b", lines[0].lower())
+                                    if m:
+                                        new_label = m.group(1)
+                                        new_reason = '\n'.join(lines[1:]).strip()
+                                if not new_reason:
+                                    m2 = _re.search(r'(?mi)^Reason:\s*(.*)$', new_out or '', flags=_re.DOTALL)
+                                    if m2:
+                                        new_reason = m2.group(1).strip()
+                                if new_reason:
+                                    rationale_text = 'Reason: ' + new_reason if not new_reason.lower().startswith('reason:') else new_reason
+                                else:
+                                    rationale_text = rationale_text + '\n\n(Rewriting attempt failed; original explanation preserved)'
+                                # recompute readability metrics for updated explanation
+                                try:
+                                    fk_new = textstat.flesch_kincaid_grade(rationale_text)
+                                    smog_new = textstat.smog_index(rationale_text)
+                                    fk_grades.append(fk_new)
+                                    smog_indices.append(smog_new)
+                                    readability_scores.append(textstat.flesch_reading_ease(rationale_text))
+                                except Exception:
+                                    pass
+                            except Exception as e_rew:
+                                if getattr(args, 'print_debug', False):
+                                    print('Rewrite attempt failed:', type(e_rew).__name__, e_rew)
+                    except Exception:
+                        # any failure in the enforcement path should not crash the run
+                        pass
         except Exception:
             pass
 
@@ -1404,6 +1489,9 @@ if __name__ == '__main__':
     p.add_argument('--readability-min', type=float, default=6.0, help='Minimum Flesch-Kincaid grade to consider explanation acceptable')
     p.add_argument('--readability-max', type=float, default=8.0, help='Maximum Flesch-Kincaid grade to consider explanation acceptable')
     p.add_argument('--rewrite-on-readability', action='store_true', help='If readability outside range, ask LLM to rewrite explanation at target grade (keeps label fixed)')
+    p.add_argument('--enforce-readability-reflexion', action='store_true', help='When FK outside range, trigger agent.reflect and rerun (enforce via reflexion)')
+    p.add_argument('--enforce-length', action='store_true', help='Enforce answer length roughly matching gold long_answer (within tolerance)')
+    p.add_argument('--length-tolerance', type=float, default=0.2, help='Relative tolerance for answer length when --enforce-length is set (e.g., 0.2 = +/-20%)')
     args = p.parse_args()
 
     # normalize limit
