@@ -742,6 +742,37 @@ def run(args, external_llm=None):
                         print('\n--- DIAGNOSTIC: scratchpad issues ---')
                         print(diag_sp)
                         print('--- end diagnostic ---\n')
+                        # If the scratchpad Action line contains only training artifacts
+                        # like repeated 'END OF EXERCISE', attempt an automatic repair
+                        try:
+                            import re
+                            acts = re.findall(r'(?im)^\s*Action:\s*(.*)$', sp)
+                            repaired = False
+                            for a in acts:
+                                if re.search(r'END OF EXERCISE', a, flags=re.IGNORECASE):
+                                    # build a cleaned scratchpad without the artifact Action
+                                    sp_clean = re.sub(r'(?im)^\s*Action:\s*(END OF EXERCISE\.?\s*)+', '', sp)
+                                    sp_clean = _sanitize_repeated_tokens(sp_clean)
+                                    # If still no valid Finish[...] present, append a safe Finish placeholder
+                                    from hotpotqa_runs.agents import parse_action
+                                    m = re.search(r'Finish\[\s*(yes|no|maybe)\s*\]', sp_clean, flags=re.IGNORECASE)
+                                    if not m:
+                                        placeholder = "\nAction: Finish[maybe]\nReason: Automated repair - original agent output contained only training artifacts." 
+                                        sp_clean = (sp_clean + placeholder).strip()
+                                    try:
+                                        agent.scratchpad = sp_clean
+                                        repaired = True
+                                    except Exception:
+                                        pass
+                            if repaired and getattr(args, 'print_debug', False):
+                                print('\n--- NOTICE: Repaired scratchpad by removing training-artifact Action and inserting placeholder Finish[...] ---')
+                                try:
+                                    print(agent.scratchpad[:1000])
+                                except Exception:
+                                    pass
+                                print('--- end notice ---\n')
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 try:

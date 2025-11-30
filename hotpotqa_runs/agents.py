@@ -199,6 +199,8 @@ class CoTAgent:
         last_out = ''
         while attempt <= max_retries:
             out = format_step(self.action_llm(self._build_agent_prompt()))
+            # sanitize raw LLM output to remove training artifacts before parsing
+            out = _clean_agent_output(out)
             last_out = out
             action_type, argument = parse_action(out)
             if action_type is not None:
@@ -208,6 +210,7 @@ class CoTAgent:
             if self.force_finish_format:
                 followup = '\nWhen you decide to finish, respond with exactly one `Action:` line in the format Action: Finish[yes] or Action: Finish[no] or Action: Finish[maybe]. Do not output any other text.\n' + followup
             out = format_step(self.action_llm(self._build_agent_prompt() + followup))
+            out = _clean_agent_output(out)
             action_type, argument = parse_action(out)
             if action_type is not None:
                 return out
@@ -428,6 +431,7 @@ class ReactAgent:
         last_out = ''
         while attempt <= max_retries:
             out = format_step(self.llm(self._build_agent_prompt()))
+            out = _clean_agent_output(out)
             last_out = out
             action_type, argument = parse_action(out)
             if action_type is not None:
@@ -436,6 +440,7 @@ class ReactAgent:
             if self.force_finish_format:
                 followup = '\nWhen you decide to finish, respond with exactly one `Action:` line in the format Action: Finish[yes] or Action: Finish[no] or Action: Finish[maybe]. Do not output any other text.\n' + followup
             out = format_step(self.llm(self._build_agent_prompt() + followup))
+            out = _clean_agent_output(out)
             action_type, argument = parse_action(out)
             if action_type is not None:
                 return out
@@ -607,6 +612,32 @@ def parse_action(string):
         return 'Finish', m.group(1).strip()
 
     return None, None
+
+
+def _clean_agent_output(out: str) -> str:
+    """Sanitize raw agent/LLM output to remove common training artifacts.
+
+    - Collapse repeated 'END OF EXERCISE' markers
+    - Remove stray trailing 'END OF EXERCISE' fragments that confuse parsers
+    - Strip excessive whitespace and control characters
+    Returns cleaned string.
+    """
+    if out is None:
+        return ''
+    try:
+        import re
+        s = out.replace('\r', ' ')
+        # collapse many repeated 'END OF EXERCISE' occurrences to a single marker
+        s = re.sub(r'(END OF EXERCISE\.?\s*){2,}', 'END OF EXERCISE. ', s, flags=re.IGNORECASE)
+        # remove long runs entirely
+        s = re.sub(r'(END OF EXERCISE\.?\s*){5,}', '', s, flags=re.IGNORECASE)
+        # if line begins with Action: and contains only END OF EXERCISE tokens, strip them
+        s = re.sub(r'(?im)^(\s*Action:\s*)(END OF EXERCISE\.?\s*)+$', '\1', s)
+        # strip excessive whitespace
+        s = re.sub(r'\s{3,}', ' ', s)
+        return s.strip()
+    except Exception:
+        return out.strip() if out else ''
 
 def format_step(step: str) -> str:
     return step.replace('\r', '').strip()
