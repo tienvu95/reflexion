@@ -827,7 +827,19 @@ def run(args, external_llm=None):
 
                 confs = None
                 if scoring_prompt is not None:
-                    confs = _score_choices_via_transformers(llm_raw, scoring_prompt, [' yes', ' no', ' maybe'])
+                    # Prefer LLM-provided probability API when available (label-keyed)
+                    try:
+                        if hasattr(llm_raw, 'predict_label_probs'):
+                            label_probs = llm_raw.predict_label_probs(scoring_prompt, labels=['yes','no','maybe'])
+                            # convert to token-keyed map for downstream compatibility
+                            confs = {' yes': float(label_probs.get('yes', 0.0)), ' no': float(label_probs.get('no', 0.0)), ' maybe': float(label_probs.get('maybe', 0.0))}
+                            # also keep label_probs for Brier scoring
+                            prob_dict_for_example = {k: float(v) for k, v in label_probs.items()}
+                        else:
+                            confs = _score_choices_via_transformers(llm_raw, scoring_prompt, [' yes', ' no', ' maybe'])
+                    except Exception:
+                        # fallback to transformer-based scoring
+                        confs = _score_choices_via_transformers(llm_raw, scoring_prompt, [' yes', ' no', ' maybe'])
                 if confs is None:
                     # scoring not available; break out
                     break
@@ -1013,6 +1025,13 @@ def run(args, external_llm=None):
                 attempts += 1
         except Exception:
             pass
+        # ensure we store a label-keyed prob dict for later Brier computation
+        try:
+            if prob_dict_for_example is None and isinstance(confs, dict):
+                # if confs contains token keys like ' yes', normalize to label keys
+                prob_dict_for_example = {k.strip(): float(v) for k, v in confs.items()}
+        except Exception:
+            pass
         prob_records.append((prob_dict_for_example, gold_label))
         # Final enforcement pass: if we can score the agent's final prompt and
         # the transformers argmax label is confident, override the agent's
@@ -1027,7 +1046,16 @@ def run(args, external_llm=None):
                 final_scoring_prompt = None
             final_confs = None
             if final_scoring_prompt is not None:
-                final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
+                try:
+                    if hasattr(llm_raw, 'predict_label_probs'):
+                        label_probs = llm_raw.predict_label_probs(final_scoring_prompt, labels=['yes','no','maybe'])
+                        final_confs = {' yes': float(label_probs.get('yes', 0.0)), ' no': float(label_probs.get('no', 0.0)), ' maybe': float(label_probs.get('maybe', 0.0))}
+                        # update prob_records to label-keyed
+                        prob_records[-1] = ({k: float(v) for k, v in label_probs.items()}, gold_label)
+                    else:
+                        final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
+                except Exception:
+                    final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
             if final_confs is not None:
                 # update prob record to final scoring
                 prob_records[-1] = (final_confs, gold_label)

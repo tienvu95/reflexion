@@ -225,6 +225,14 @@ class HFTransformersLLM:
             return out[len(prompt):].strip()
         return out.strip()
 
+    @property
+    def model(self):
+        return self._model
+
+    @property
+    def tokenizer(self):
+        return self._tokenizer
+
     def predict_label_probs(self, prompt: str, labels=None) -> dict:
         """Return probability distribution over discrete labels (e.g., ['yes','no','maybe']).
 

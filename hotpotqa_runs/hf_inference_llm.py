@@ -109,3 +109,70 @@ class HFInferenceLLM:
 
         # otherwise fallback to text
         return str(data).strip()
+
+    def predict_label_probs(self, prompt: str, labels=None) -> dict:
+        """Ask the hosted model to provide probabilities for discrete labels.
+
+        This is a heuristic: the inference API does not expose logits, so we
+        prompt the model to return probabilities in JSON. The output is parsed
+        for a JSON object or float pairs. Returns a dict mapping label->prob.
+        """
+        if labels is None:
+            labels = ['yes', 'no', 'maybe']
+
+        # Build a small instruction prompt asking for JSON probabilities
+        instruct = (
+            "For the following input, return a JSON object with probabilities for keys 'yes','no','maybe'."
+            " Example: {\"yes\":0.7, \"no\":0.2, \"maybe\":0.1}. Do not include extra text.\n\n"
+        )
+        full = instruct + prompt
+        text = self.__call__(full)
+
+        # Try to parse JSON from the response
+        try:
+            # find first JSON object in text
+            import re, json
+            m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if m:
+                obj = json.loads(m.group(0))
+                # normalize keys and values
+                out = {}
+                for k, v in obj.items():
+                    kk = str(k).strip().lower()
+                    try:
+                        out[kk] = float(v)
+                    except Exception:
+                        try:
+                            out[kk] = float(str(v))
+                        except Exception:
+                            out[kk] = 0.0
+                # ensure all requested labels present
+                for lab in labels:
+                    if lab not in out:
+                        out[lab] = 0.0
+                # normalize to sum 1 if possible
+                s = sum(out.values())
+                if s > 0:
+                    for k in out:
+                        out[k] = out[k] / s
+                return out
+        except Exception:
+            pass
+
+        # Fallback: extract floats in order if JSON not found
+        try:
+            import re
+            nums = re.findall(r"([0-9]*\.?[0-9]+)", text)
+            probs = [float(n) for n in nums]
+            if len(probs) >= len(labels):
+                out = {lab: float(probs[i]) for i, lab in enumerate(labels)}
+                s = sum(out.values())
+                if s > 0:
+                    for k in out:
+                        out[k] = out[k] / s
+                return out
+        except Exception:
+            pass
+
+        # Last resort: soft uniform fallback
+        return {lab: 1.0/len(labels) for lab in labels}
