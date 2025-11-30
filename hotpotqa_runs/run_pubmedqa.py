@@ -1345,9 +1345,24 @@ def run(args, external_llm=None):
     else:
         print('ROUGE metrics not computed for rationales.')
 
-    if readability_scores:
-        avg_read = sum(readability_scores) / len(readability_scores)
-        print(f'Avg Flesch Reading Ease (rationales): {avg_read:.2f}')
+    if readability_scores or fk_grades or smog_indices:
+        if readability_scores:
+            avg_read = sum(readability_scores) / len(readability_scores)
+            print(f'Avg Flesch Reading Ease (rationales): {avg_read:.2f}')
+        else:
+            print('Flesch Reading Ease not computed for rationales.')
+
+        if fk_grades:
+            avg_fk = sum(fk_grades) / len(fk_grades)
+            print(f'Avg Flesch-Kincaid Grade (rationales): {avg_fk:.2f}')
+        else:
+            print('Flesch-Kincaid Grade not computed for rationales.')
+
+        if smog_indices:
+            avg_smog = sum(smog_indices) / len(smog_indices)
+            print(f'Avg SMOG Index (rationales): {avg_smog:.2f}')
+        else:
+            print('SMOG Index not computed for rationales.')
     else:
         print('Readability metrics not computed for rationales.')
 
