@@ -619,8 +619,10 @@ def run(args, external_llm=None):
         # sanitize repeated training/exercise markers that may appear in dataset
         try:
             context = _sanitize_repeated_tokens(context)
-        except Exception:
-            pass
+        except Exception as e_skip:
+            # When '__SKIP_CONFIDENCE_LOOP__' is raised above, we land here intentionally
+            if str(e_skip) != '__SKIP_CONFIDENCE_LOOP__':
+                pass
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
         gold_label = _canon_label(true_answer)
         long_answer_text = extract_text(ex.get(long_field)) if long_field else ''
@@ -829,6 +831,28 @@ def run(args, external_llm=None):
         pred = getattr(agent, 'answer', '')
         enforced_label = None
         prob_dict_for_example = None
+        # Optional early exit: if initial prediction is already correct and user requested stop-on-correct
+        try:
+            if bool(getattr(args, 'stop_on_correct', False)):
+                try:
+                    already_correct = EM(coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', '')), true_answer)
+                except Exception:
+                    already_correct = (coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', '')).strip().lower() == true_answer.strip().lower())
+                if already_correct:
+                    if getattr(args, 'print_debug', False):
+                        print('Initial prediction is CORRECT and --stop-on-correct is set; skipping confidence/reflexion loop.')
+                    # Add observation marker once
+                    try:
+                        s = getattr(agent, 'scratchpad', '') or ''
+                        import re as _re_obs0
+                        if not _re_obs0.search(r'(?im)^\s*Observation:\s*Answer is CORRECT\b', s):
+                            s = (s.rstrip('\n') + "\nObservation: Answer is CORRECT").strip()
+                            agent.scratchpad = s
+                    except Exception:
+                        pass
+                    raise RuntimeError('__SKIP_CONFIDENCE_LOOP__')
+        except Exception:
+            pass
         try:
             max_attempts = getattr(args, 'max_reflect_attempts', 2)
             attempts = 0
@@ -1718,6 +1742,7 @@ if __name__ == '__main__':
     p.add_argument('--force-finish-format', action='store_true', help='Ask agents to output exactly one Finish[...] action with yes/no/maybe when finishing')
     p.add_argument('--confidence-threshold', type=float, default=0.6, help='Confidence threshold (0..1) to accept yes/no/maybe without further reflexion')
     p.add_argument('--max-reflect-attempts', type=int, default=2, help='Maximum number of reflexion+retry attempts when confidence is low')
+    p.add_argument('--stop-on-correct', action='store_true', help='If the initial agent prediction matches the gold label, stop immediately and avoid any further reflexion or enforcement')
     p.add_argument('--print-debug', dest='print_debug', action='store_true', help='Print verbose debug info (default)')
     p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
     p.add_argument('--print-logit-debug', action='store_true', help='Print yes/no/maybe probability scores when evaluating confidence')
