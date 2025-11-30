@@ -1513,10 +1513,24 @@ def run(args, external_llm=None):
 
                         # Evaluate candidate against acceptance criteria
                         if cand_rationale and len(cand_rationale.strip().strip('`.')) >= 3:
+                            # Debug: show the candidate rationale being evaluated
+                            try:
+                                if getattr(args, 'print_debug', False):
+                                    preview = cand_rationale if len(cand_rationale) <= 400 else (cand_rationale[:400] + '...')
+                                    print('\n--- Readability rewrite candidate (preview) ---')
+                                    print(preview)
+                                    print('--- end candidate ---')
+                            except Exception:
+                                pass
                             try:
                                 cand_fk = textstat.flesch_kincaid_grade(cand_rationale)
                             except Exception:
                                 cand_fk = None
+                            try:
+                                if getattr(args, 'print_debug', False):
+                                    print(f'Candidate FK={cand_fk}  words={len(cand_rationale.split())}')
+                            except Exception:
+                                pass
                             # word-length check
                             length_ok = True
                             if enforce_length_flag and min_words is not None and max_words is not None:
