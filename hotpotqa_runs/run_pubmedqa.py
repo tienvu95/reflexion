@@ -565,6 +565,8 @@ def run(args, external_llm=None):
     prob_records = []
     rouge_records = []
     readability_scores = []
+    fk_grades = []
+    smog_indices = []
 
     try:
         from rouge_score import rouge_scorer
@@ -578,6 +580,11 @@ def run(args, external_llm=None):
     except Exception:
         textstat = None
         print('textstat not available; skipping readability metrics.')
+
+    # Readability guidance thresholds
+    READABILITY_MIN = float(getattr(args, 'readability_min', 6.0))
+    READABILITY_MAX = float(getattr(args, 'readability_max', 8.0))
+    REWRITE_ON_READABILITY = bool(getattr(args, 'rewrite_on_readability', False))
 
     def _canon_label(val: str) -> str:
         return (val or '').strip().lower()
@@ -1180,9 +1187,71 @@ def run(args, external_llm=None):
                 pass
         if textstat and rationale_text:
             try:
-                readability_scores.append(textstat.flesch_reading_ease(rationale_text))
+                # compute multiple readability metrics
+                fk = textstat.flesch_kincaid_grade(rationale_text)
+                smog = textstat.smog_index(rationale_text)
+                fre = textstat.flesch_reading_ease(rationale_text)
+                fk_grades.append(fk)
+                smog_indices.append(smog)
+                readability_scores.append(fre)
             except Exception:
-                pass
+                fk = None
+                smog = None
+        else:
+            fk = None
+            smog = None
+
+        # Readability-guided rewrite: if readability is outside target range,
+        # request the LLM to rewrite the explanation keeping the gold label.
+        try:
+            if REWRITE_ON_READABILITY and textstat and rationale_text is not None and fk is not None:
+                if fk < READABILITY_MIN or fk > READABILITY_MAX:
+                    # instruct model to rewrite at target grade and keep gold label
+                    target_range = f"about {int(READABILITY_MIN)}th-{int(READABILITY_MAX)}th grade"
+                    gold_for_rewrite = gold_label if gold_label in ('yes','no','maybe') else pred
+                    rewrite_instruction = (
+                        f"Rewrite the existing explanation to be in simple layperson language at {target_range}. "
+                        f"Keep the first-line answer fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second line beginning with 'Reason:' followed by the rewritten explanation."
+                    )
+                    rewrite_prompt = (scoring_prompt or '') + "\n" + rewrite_instruction + "\nPrevious explanation:\n" + rationale_text
+                    try:
+                        new_out = llm_callable(rewrite_prompt)
+                        # extract label and reason
+                        import re
+                        lines = [ln.strip() for ln in (new_out or '').splitlines() if ln.strip()]
+                        new_label = None
+                        new_reason = None
+                        if lines:
+                            m = re.search(r"\b(yes|no|maybe)\b", lines[0].lower())
+                            if m:
+                                new_label = m.group(1)
+                                new_reason = '\n'.join(lines[1:]).strip()
+                        if not new_reason:
+                            # fallback: attempt to pick Reason: line
+                            m2 = re.search(r'(?mi)^Reason:\s*(.*)$', new_out or '', flags=re.DOTALL)
+                            if m2:
+                                new_reason = m2.group(1).strip()
+                        # enforce gold label in any case
+                        if new_reason:
+                            rationale_text = 'Reason: ' + new_reason if not new_reason.lower().startswith('reason:') else new_reason
+                        else:
+                            # keep old rationale_text but annotate it
+                            rationale_text = rationale_text + '\n\n(Rewriting attempt failed; original explanation preserved)'
+                        # recompute readability metrics for updated explanation
+                        try:
+                            fk_new = textstat.flesch_kincaid_grade(rationale_text)
+                            smog_new = textstat.smog_index(rationale_text)
+                            # append updated values
+                            fk_grades.append(fk_new)
+                            smog_indices.append(smog_new)
+                            readability_scores.append(textstat.flesch_reading_ease(rationale_text))
+                        except Exception:
+                            pass
+                    except Exception as e_rew:
+                        if getattr(args, 'print_debug', False):
+                            print('Rewrite attempt failed:', type(e_rew).__name__, e_rew)
+        except Exception:
+            pass
 
         out_rows.append({
             'index': i,
@@ -1289,6 +1358,9 @@ if __name__ == '__main__':
     p.add_argument('--force-argmax-final', action='store_true', help='Force final predicted label to the transformers argmax when final scoring is available')
     p.set_defaults(print_debug=True, print_logit_debug=False)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
+    p.add_argument('--readability-min', type=float, default=6.0, help='Minimum Flesch-Kincaid grade to consider explanation acceptable')
+    p.add_argument('--readability-max', type=float, default=8.0, help='Maximum Flesch-Kincaid grade to consider explanation acceptable')
+    p.add_argument('--rewrite-on-readability', action='store_true', help='If readability outside range, ask LLM to rewrite explanation at target grade (keeps label fixed)')
     args = p.parse_args()
 
     # normalize limit

@@ -224,3 +224,66 @@ class HFTransformersLLM:
         if model_type not in SEQ2SEQ_TYPES and out.startswith(prompt):
             return out[len(prompt):].strip()
         return out.strip()
+
+    def predict_label_probs(self, prompt: str, labels=None) -> dict:
+        """Return probability distribution over discrete labels (e.g., ['yes','no','maybe']).
+
+        This method computes next-token logits for the given prompt and converts
+        the logits for the token IDs of the provided labels into a normalized
+        probability distribution. It assumes each label maps to a single token
+        in the tokenizer (common for words like 'yes','no','maybe').
+
+        Returns a dict mapping label -> probability (float).
+        """
+        self._ensure_loaded()
+        if labels is None:
+            labels = ["yes", "no", "maybe"]
+
+        tok = self._tokenizer
+        model = self._model
+
+        # Prepare inputs similar to __call__ path
+        try:
+            max_len = getattr(tok, 'model_max_length', None) or 2048
+            max_len = max(32, int(max_len) - 16)
+            inputs = tok(prompt, return_tensors='pt', truncation=True, max_length=max_len)
+        except Exception:
+            inputs = tok(prompt, return_tensors='pt')
+
+        # move inputs to model device
+        try:
+            model_device = next(model.parameters()).device
+            inputs = {k: v.to(model_device) for k, v in inputs.items()}
+        except Exception:
+            pass
+
+        # Run model in eval mode to get logits
+        with __import__('torch').no_grad():
+            out = model(**inputs, return_dict=True)
+            logits = getattr(out, 'logits', None)
+            if logits is None:
+                raise RuntimeError('Model did not return logits for probability prediction.')
+
+        # We care about the last token logits
+        last_logits = logits[0, -1, :]
+
+        # Map label -> token id (require single-token labels)
+        label_token_ids = {}
+        for lab in labels:
+            toks = tok(lab, add_special_tokens=False, return_tensors='pt')
+            ids = toks['input_ids'][0].tolist()
+            if len(ids) != 1:
+                # If label tokenizes to multiple tokens, we warn and use the first token
+                label_token_ids[lab] = ids[0]
+            else:
+                label_token_ids[lab] = ids[0]
+
+        import math
+        import torch as _torch
+
+        # Extract logits for the candidate token ids
+        cand_ids = list(label_token_ids.values())
+        cand_logits = _torch.stack([last_logits[_torch.tensor(i, device=last_logits.device)] for i in cand_ids])
+        probs = _torch.softmax(cand_logits, dim=0).cpu().tolist()
+
+        return {lab: float(p) for lab, p in zip(labels, probs)}
