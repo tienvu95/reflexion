@@ -600,9 +600,6 @@ def run(args, external_llm=None):
         print(f"\n===== Example {i+1}/{target_total} =====")
         print('Question:', question)
 
-        print(f"\n===== Example {i+1}/{target_total} =====")
-        print('Question:', question)
-
         # Prepare agent. ReactAgent: (question, key, ...) ; CoTAgent: (question, context, key, ...)
         # If a global LangChain Wikipedia docstore is not configured, create a
         # per-example SimpleDocstore using the example `context` so Search/Lookup
@@ -618,15 +615,20 @@ def run(args, external_llm=None):
         if hasattr(agent, '_debug_enabled'):
             agent._debug_enabled = debug_enabled
 
-        if hasattr(agent, '_debug_enabled'):
-            agent._debug_enabled = debug_enabled
-
         # Defensive: clear the agent's few-shot examples when running open-domain
-        # tasks so the prompt only contains the current sample. For PubMedQA we
-        # want to keep biomedical few-shots, so skip clearing when the dataset
-        # name indicates PubMedQA or when the caller explicitly requests to keep
-        # the examples (keep_fewshot_examples=True).
-        should_clear_examples = not getattr(args, 'keep_fewshot_examples', False)
+        # tasks so the prompt only contains the current sample. By default we
+        # preserve builtin biomedical few-shots when running PubMedQA (the
+        # repository default dataset) or when the caller explicitly requests to
+        # keep the examples via `--keep-fewshot-examples`.
+        keep_flag = bool(getattr(args, 'keep_fewshot_examples', False))
+        is_pubmed = 'pubmedqa' in (getattr(args, 'dataset', '') or '').lower()
+        should_clear_examples = not (keep_flag or is_pubmed)
+        # Informative debug message when we preserve examples
+        if not should_clear_examples and debug_enabled:
+            try:
+                print(f'Preserving builtin few-shot examples (keep_fewshot_examples={keep_flag}, dataset="{args.dataset}")')
+            except Exception:
+                pass
         if should_clear_examples:
             try:
                 if hasattr(agent, 'react_examples'):
@@ -1198,10 +1200,6 @@ def run(args, external_llm=None):
             pct = (total / target_total) * 100 if target_total else 0.0
             acc = correct / total if total else 0.0
             print(f"Progress: {total}/{target_total} ({pct:.1f}%)  Acc={acc:.3f}")
-
-        print('Final Answer:', pred)
-        print('Reason:', rationale_text if rationale_text else '(none)')
-        print('=========================================')
 
         print('Final Answer:', pred)
         print('Reason:', rationale_text if rationale_text else '(none)')
