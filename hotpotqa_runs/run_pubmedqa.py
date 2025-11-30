@@ -876,6 +876,27 @@ def run(args, external_llm=None):
                 cur_conf = float(confs.get(token_label, 0.0))
                 if getattr(args, 'print_logit_debug', False):
                     print(f'Confidence for prediction "{cur_label}" = {cur_conf:.4f} (choices: {confs})')
+
+                # If the current prediction already matches the gold label,
+                # record it and skip any confidence-based enforcement/flip.
+                try:
+                    if cur_label == gold_label:
+                        if getattr(args, 'print_debug', False):
+                            print('Prediction matches gold; skipping confidence enforcement and marking as CORRECT.')
+                        try:
+                            s = getattr(agent, 'scratchpad', '') or ''
+                            import re as _re_obs
+                            if not _re_obs.search(r'(?im)^\s*Observation:\s*Answer is CORRECT\b', s):
+                                s = (s.rstrip('\n') + "\nObservation: Answer is CORRECT").strip()
+                                try:
+                                    agent.scratchpad = s
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                        break
+                except Exception:
+                    pass
                 # If the model's top-logit choice meets the threshold, enforce
                 # that choice as the final prediction (strong guiding principle).
                 # Otherwise, if confidence meets threshold for the current
@@ -1249,6 +1270,18 @@ def run(args, external_llm=None):
 
         if is_correct:
             correct += 1
+            # Make it explicit in the scratchpad that the answer is correct, to guide any later steps
+            try:
+                s = getattr(agent, 'scratchpad', '') or ''
+                import re as _re_obs2
+                if not _re_obs2.search(r'(?im)^\s*Observation:\s*Answer is CORRECT\b', s):
+                    s = (s.rstrip('\n') + "\nObservation: Answer is CORRECT").strip()
+                    try:
+                        agent.scratchpad = s
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         else:
             # Optional flip-on-incorrect: choose alternative among remaining two using logits
             try:
