@@ -456,6 +456,54 @@ def run(args, external_llm=None):
         text = re.sub(r'\s{3,}', ' ', text)
         return text.strip()
 
+    def _explain_invalid_actions(text: str, label: str = '<context>') -> str:
+        """Return a short diagnostic explaining any non-actionable 'Action:' lines.
+
+        Scans `text` for lines beginning with 'Action:' or stray tokens like
+        'END OF EXERCISE' and returns a multi-line diagnostic that can be
+        printed to help debugging why the agent did not emit a valid
+        'Finish[...]' action.
+        """
+        if not text:
+            return ''
+        import re
+        diag_lines = []
+        # find Action: lines
+        actions = re.findall(r'(?im)^\s*Action:\s*(.*)$', text)
+        if actions:
+            diag_lines.append(f"Found {len(actions)} 'Action:' line(s) in {label}:")
+            for a in actions:
+                a_s = a.strip()
+                # common bogus artifact
+                if re.search(r'END OF EXERCISE', a_s, flags=re.IGNORECASE):
+                    diag_lines.append(f" - Action value appears to be training artifact 'END OF EXERCISE' -> not a valid agent action. This should be replaced with 'Finish[yes|no|maybe]' or 'Search: <query>'.")
+                else:
+                    diag_lines.append(f" - Action: '{a_s}' (unrecognized). Valid actions should include 'Finish[yes|no|maybe]' or 'Search: ...' or 'Lookup: ...'.")
+
+        # detect Finish[...] lines that are malformed
+        finishes = re.findall(r'(?im)^\s*(Finish\[.*\])', text)
+        if finishes:
+            diag_lines.append(f"Found {len(finishes)} Finish[...] candidate(s) in {label}:")
+            for f in finishes:
+                f_s = f.strip()
+                # quick validation: must be exactly yes/no/maybe inside
+                m = re.match(r'Finish\[\s*(yes|no|maybe)\s*\]', f_s, flags=re.IGNORECASE)
+                if not m:
+                    diag_lines.append(f" - Malformed Finish token: '{f_s}'. Expected exactly 'Finish[yes]', 'Finish[no]' or 'Finish[maybe]'.")
+
+        # detect repeated 'END OF EXERCISE' tokens
+        if re.search(r'END OF EXERCISE', text, flags=re.IGNORECASE):
+            # if many repeats present, explain sanitization
+            count = len(re.findall(r'END OF EXERCISE', text, flags=re.IGNORECASE))
+            if count > 3:
+                diag_lines.append(f"Detected {count} 'END OF EXERCISE' markers in {label}. These are training artifacts and will be collapsed; they are non-actionable.")
+            else:
+                diag_lines.append(f"Detected 'END OF EXERCISE' marker(s) in {label}; these are non-actionable training artifacts.")
+
+        if not diag_lines:
+            return ''
+        return '\n'.join(diag_lines)
+
     # Choose agent type: use ReactAgent as default
     if args.agent == 'react':
         AgentClass = ReactAgent
@@ -630,6 +678,49 @@ def run(args, external_llm=None):
         except Exception as e:
             print(f"Error while running agent on example {i}: {e}")
 
+        # Diagnostic: explain any invalid Action/Finish tokens produced by the
+        # agent immediately after its run. This helps surface why the agent
+        # emitted 'Action: END OF EXERCISE' or other non-actionable tokens.
+        try:
+            if getattr(args, 'print_debug', False):
+                sp = getattr(agent, 'scratchpad', '') or ''
+                refl = ''
+                if hasattr(agent, 'reflections') and agent.reflections:
+                    refl = '\n'.join(agent.reflections)
+                elif getattr(agent, 'reflections_str', None):
+                    refl = agent.reflections_str
+                # print short snippet for quick inspection
+                try:
+                    if sp:
+                        print('\n--- Agent scratchpad (snippet) ---')
+                        print(sp[:1000])
+                        print('--- End scratchpad snippet ---')
+                except Exception:
+                    pass
+                # produce diagnostics for both scratchpad and reflections
+                try:
+                    diag_sp = _explain_invalid_actions(sp, label='scratchpad')
+                    if diag_sp:
+                        print('\n--- DIAGNOSTIC: scratchpad issues ---')
+                        print(diag_sp)
+                        print('--- end diagnostic ---\n')
+                except Exception:
+                    pass
+                try:
+                    if refl:
+                        print('\n--- Agent reflection (snippet) ---')
+                        print(refl[:1000])
+                        print('--- End reflection snippet ---')
+                        diag_refl = _explain_invalid_actions(refl, label='reflection')
+                        if diag_refl:
+                            print('\n--- DIAGNOSTIC: reflection issues ---')
+                            print(diag_refl)
+                            print('--- end diagnostic ---\n')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # After the first run, try to evaluate the model's confidence on the
         # discrete choices (yes/no/maybe) using logits when the underlying
         # transformers model+tokenizer is available. If confidence is low,
@@ -640,6 +731,8 @@ def run(args, external_llm=None):
         try:
             max_attempts = getattr(args, 'max_reflect_attempts', 2)
             attempts = 0
+            # track last reflection text to avoid repeated no-op reflections
+            prev_reflection_text = None
             # previous confidence baseline
             prev_conf = -1.0
             while attempts < max_attempts:
@@ -785,6 +878,18 @@ def run(args, external_llm=None):
                                 refl_text = '\n'.join(agent.reflections)
                             elif getattr(agent, 'reflections_str', None):
                                 refl_text = agent.reflections_str
+                            # sanitize repeated training artifacts in reflection text
+                            try:
+                                refl_text = _sanitize_repeated_tokens(refl_text)
+                                # remove stray 'Action: END OF EXERCISE' sequences which are non-actionable
+                                refl_text = re.sub(r'Action:\s*(END OF EXERCISE\.?\s*)+', '', refl_text, flags=re.IGNORECASE)
+                            except Exception:
+                                pass
+                            # if reflection is identical to previous attempt, abort further reflexion
+                            if prev_reflection_text is not None and refl_text.strip() == prev_reflection_text.strip():
+                                if getattr(args, 'print_debug', False):
+                                    print('Reflection unchanged from previous attempt; aborting further reflexion to avoid no-op loop.')
+                                break
                             # look for Finish[...] or explicit label mentions
                             m = re.search(r'Finish\[\s*(yes|no|maybe)\s*\]', refl_text, flags=re.IGNORECASE)
                             forced_label = None
@@ -809,6 +914,8 @@ def run(args, external_llm=None):
                                             print('Stored injected instruction on agent._injected_instruction')
                                     except Exception:
                                         pass
+                            # remember this reflection so we can detect repeats
+                            prev_reflection_text = refl_text
                         except Exception:
                             pass
                         # rerun without resetting to preserve context/scratchpad
