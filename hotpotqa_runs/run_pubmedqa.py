@@ -515,12 +515,11 @@ def run(args, external_llm=None):
         return '\n'.join(diag_lines)
 
     def _pick_reason_line(raw_text: str) -> str:
-        """Choose the best candidate Reason: line from raw LLM output.
+        """Choose a concise rationale from raw LLM output, without prefix.
 
-        Prefer an explicit line beginning with 'Reason:' that contains
-        substantive evidence (not instruction text), otherwise pick the
-        first non-empty line that doesn't look like an instruction.
-        Returns empty string when nothing suitable found.
+        - If a line starts with 'Reason:', strip the prefix and return the content.
+        - Otherwise return the first substantive non-instruction line.
+        - Skip trivial content ('yes'/'no'/'maybe').
         """
         if not raw_text:
             return ''
@@ -530,16 +529,27 @@ def run(args, external_llm=None):
         # 1) explicit Reason: lines that are not instructions
         for ln in lines:
             if ln.lower().startswith('reason:') and not instr_pat.search(ln):
-                return ln if ln.endswith('.') else ln.rstrip('.') + '.'
+                content = ln.split(':', 1)[1].strip()
+                if content.lower() in ('yes','no','maybe'):
+                    continue
+                return content if content.endswith('.') else content.rstrip('.') + '.'
         # 2) any line that looks substantive (contains verbs/nouns) and is not an instruction
         for ln in lines:
             if not instr_pat.search(ln) and len(ln.split()) > 3:
-                if not ln.lower().startswith('reason:'):
-                    return 'Reason: ' + (ln if ln.endswith('.') else ln.rstrip('.') + '.')
+                if ln.lower().startswith('reason:'):
+                    content = ln.split(':', 1)[1].strip()
+                    if content.lower() in ('yes','no','maybe'):
+                        continue
+                    return content if content.endswith('.') else content.rstrip('.') + '.'
+                if ln.lower() in ('yes','no','maybe'):
+                    continue
+                return ln if ln.endswith('.') else ln.rstrip('.') + '.'
         # 3) fallback: first non-instruction short line
         for ln in lines:
             if not instr_pat.search(ln):
-                return 'Reason: ' + (ln if ln.endswith('.') else ln.rstrip('.') + '.')
+                if ln.lower() in ('yes','no','maybe'):
+                    continue
+                return ln if ln.endswith('.') else ln.rstrip('.') + '.'
         return ''
 
     # Choose agent type: use ReactAgent as default
@@ -886,10 +896,10 @@ def run(args, external_llm=None):
                         except Exception:
                             pass
 
-                        # Attempt to synthesize a concise Reason: line using the
-                        # same prompt context so evaluation has a matching rationale.
+                        # Attempt to synthesize a concise rationale line using the
+                        # same prompt context so evaluation has a matching explanation.
                         try:
-                            justification_prompt = (scoring_prompt or '') + "\n" + f"Please output a single line beginning with 'Reason:' that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Only output the Reason line."
+                            justification_prompt = (scoring_prompt or '') + "\n" + f"Please output a single sentence that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Do not include the word 'Reason:'."
                             raw_reason = llm_callable(justification_prompt)
                             # Choose a sane Reason line avoiding instruction echoes
                             reason_line = _pick_reason_line(raw_reason)
@@ -917,8 +927,8 @@ def run(args, external_llm=None):
                         s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
                         # collapse any repeated 'END OF EXERCISE' artifacts
                         s = _sanitize_repeated_tokens(s)
-                        # append enforced Finish and Reason lines
-                        enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
+                        # append enforced Finish and rationale line (no prefix)
+                        enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else pred + '.'}"
                         try:
                             agent.scratchpad = (s + enforced).strip()
                             if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
@@ -1081,7 +1091,7 @@ def run(args, external_llm=None):
                         pass
                     # attempt to synthesize a concise Reason line aligned to argmax
                     try:
-                        justification_prompt = final_scoring_prompt + "\n" + f"Please output a single line beginning with 'Reason:' that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Only output the Reason line."
+                        justification_prompt = final_scoring_prompt + "\n" + f"Please output a single sentence that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Do not include the word 'Reason:'."
                         raw_reason = llm_callable(justification_prompt)
                         reason_line = _pick_reason_line(raw_reason)
                         if reason_line:
@@ -1107,7 +1117,7 @@ def run(args, external_llm=None):
                         s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
                         # collapse repeated tokens
                         s = _sanitize_repeated_tokens(s)
-                        enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else 'Reason: ' + pred + '.'}"
+                        enforced = f"\nFinish[{pred}]\n{rationale_text if rationale_text else pred + '.'}"
                         try:
                             agent.scratchpad = (s + enforced).strip()
                         except Exception as e_sp:
@@ -1154,10 +1164,10 @@ def run(args, external_llm=None):
             # require some substance
             if len(reason_part.split()) < 3:
                 continue
-            rationale_text = 'Reason: ' + reason_part
+            rationale_text = reason_part
             break
         if not rationale_text:
-            rationale_text = f'Reason: {pred}.'
+            rationale_text = ''
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
         # If we programmatically enforced a label earlier (argmax override),
@@ -1322,7 +1332,7 @@ def run(args, external_llm=None):
                                         reason_part = line.split('Reason:', 1)[1].strip()
                                         if not reason_part or instr_pat_local.search(reason_part) or len(reason_part.split()) < 3:
                                             continue
-                                        cand_rationale = 'Reason: ' + reason_part
+                                        cand_rationale = reason_part
                                         break
                                 except Exception:
                                     cand_rationale = None
@@ -1335,7 +1345,7 @@ def run(args, external_llm=None):
                             try:
                                 rewrite_instruction = (
                                     f"Rewrite the existing explanation to be in simple layperson language at {target_range}. "
-                                    f"Keep the first-line answer fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second line beginning with 'Reason:' followed by the rewritten explanation."
+                                    f"Keep the final decision fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second the explanation sentence without any 'Reason:' prefix."
                                 )
                                 if min_words is not None and max_words is not None:
                                     rewrite_instruction += f" The rewritten explanation should be about {min_words}-{max_words} words (approx.)."
@@ -1355,7 +1365,7 @@ def run(args, external_llm=None):
                                     if m2:
                                         new_reason = m2.group(1).strip()
                                 if new_reason:
-                                    cand_rationale = 'Reason: ' + new_reason if not new_reason.lower().startswith('reason:') else new_reason
+                                    cand_rationale = new_reason.split(':',1)[-1].strip() if new_reason.lower().startswith('reason:') else new_reason
                                 cand_label = new_label or orig_pred
                             except Exception as e_rew:
                                 if getattr(args, 'print_debug', False):
@@ -1403,6 +1413,9 @@ def run(args, external_llm=None):
                                 except Exception:
                                     pass
                                 break
+                            else:
+                                if getattr(args, 'print_debug', False):
+                                    print(f"rewrite rejected: fk_ok={fk_ok} length_ok={length_ok} rouge_ok={rouge_ok} label_ok={label_ok} cand_fk={cand_fk} cand_rouge1={cand_rouge1}")
                         # If no acceptable candidate, continue loop
                         pred = orig_pred
                         try:
@@ -1439,7 +1452,7 @@ def run(args, external_llm=None):
             print(f"Progress: {total}/{target_total} ({pct:.1f}%)  Acc={acc:.3f}")
 
         print('Final Answer:', pred)
-        print('Reason:', rationale_text if rationale_text else '(none)')
+        print('Rationale:', rationale_text if rationale_text else '(none)')
         print('=========================================')
 
     # write CSV
