@@ -583,10 +583,23 @@ def parse_action(string):
         return match.group(1), match.group(2)
 
     # Heuristic fallbacks: if the output is short, treat it as Finish[<output>]
+    # Reject obvious training artifacts or repeated tokens that are not actions
+    if re.search(r'END OF EXERCISE', s, flags=re.IGNORECASE):
+        return None, None
+    # Avoid accepting noisy ALL-CAPS output as a Finish
+    if s.isupper() and len(s.split()) > 1:
+        return None, None
+
     tokens = s.split()
-    if 0 < len(tokens) <= 8:
-        # common yes/no single-word answers
-        return 'Finish', s
+    if 0 < len(tokens) <= 3:
+        # Only accept short, explicit yes/no/maybe forms as Finish
+        low = s.strip().lower()
+        if low in ('yes', 'y', 'no', 'n', 'maybe', 'possibly', 'could', 'likely', 'uncertain', 'unsure', 'unclear'):
+            return 'Finish', low
+        # Also accept short phrases like 'no change' or 'not sure' conservatively
+        if len(tokens) == 2 and any(t in ('no','not','unsure','unclear','maybe') for t in map(str.lower, tokens)):
+            return 'Finish', s
+    # Do not heuristically accept longer freeform outputs as Finish; require explicit Finish[...] or bracketed form
 
     # If the output contains the word 'finish' followed by bracket-like text
     m = re.search(r'finish\s*[:\[]\s*([^\]\n]+)', s, flags=re.IGNORECASE)
