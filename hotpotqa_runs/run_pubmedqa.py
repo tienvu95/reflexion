@@ -477,8 +477,18 @@ def run(args, external_llm=None):
                 # common bogus artifact
                 if re.search(r'END OF EXERCISE', a_s, flags=re.IGNORECASE):
                     diag_lines.append(f" - Action value appears to be training artifact 'END OF EXERCISE' -> not a valid agent action. This should be replaced with 'Finish[yes|no|maybe]' or 'Search: <query>'.")
-                else:
-                    diag_lines.append(f" - Action: '{a_s}' (unrecognized). Valid actions should include 'Finish[yes|no|maybe]' or 'Search: ...' or 'Lookup: ...'.")
+                    continue
+                # check for Finish[...] with valid label
+                mfin = re.match(r'Finish\[\s*(yes|no|maybe)\s*\]$', a_s, flags=re.IGNORECASE)
+                if mfin:
+                    diag_lines.append(f" - Action: '{a_s}' -> valid Finish action detected.")
+                    continue
+                # check for malformed Finish[...] tokens
+                if re.search(r'Finish\[', a_s, flags=re.IGNORECASE):
+                    diag_lines.append(f" - Malformed Finish token in Action: '{a_s}'. Expected exactly 'Finish[yes]', 'Finish[no]' or 'Finish[maybe]'.")
+                    continue
+                # otherwise unknown action type
+                diag_lines.append(f" - Action: '{a_s}' (unrecognized). Valid actions should include 'Finish[yes|no|maybe]' or 'Search: ...' or 'Lookup: ...'.")
 
         # detect Finish[...] lines that are malformed
         finishes = re.findall(r'(?im)^\s*(Finish\[.*\])', text)
@@ -503,6 +513,34 @@ def run(args, external_llm=None):
         if not diag_lines:
             return ''
         return '\n'.join(diag_lines)
+
+    def _pick_reason_line(raw_text: str) -> str:
+        """Choose the best candidate Reason: line from raw LLM output.
+
+        Prefer an explicit line beginning with 'Reason:' that contains
+        substantive evidence (not instruction text), otherwise pick the
+        first non-empty line that doesn't look like an instruction.
+        Returns empty string when nothing suitable found.
+        """
+        if not raw_text:
+            return ''
+        import re
+        lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+        instr_pat = re.compile(r"do not include|do not output|do not add|don't include|don't output|do not mention", flags=re.IGNORECASE)
+        # 1) explicit Reason: lines that are not instructions
+        for ln in lines:
+            if ln.lower().startswith('reason:') and not instr_pat.search(ln):
+                return ln if ln.endswith('.') else ln.rstrip('.') + '.'
+        # 2) any line that looks substantive (contains verbs/nouns) and is not an instruction
+        for ln in lines:
+            if not instr_pat.search(ln) and len(ln.split()) > 3:
+                if not ln.lower().startswith('reason:'):
+                    return 'Reason: ' + (ln if ln.endswith('.') else ln.rstrip('.') + '.')
+        # 3) fallback: first non-instruction short line
+        for ln in lines:
+            if not instr_pat.search(ln):
+                return 'Reason: ' + (ln if ln.endswith('.') else ln.rstrip('.') + '.')
+        return ''
 
     # Choose agent type: use ReactAgent as default
     if args.agent == 'react':
@@ -801,19 +839,8 @@ def run(args, external_llm=None):
                         try:
                             justification_prompt = (scoring_prompt or '') + "\n" + f"Please output a single line beginning with 'Reason:' that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Only output the Reason line."
                             raw_reason = llm_callable(justification_prompt)
-                            # Extract the first line that starts with 'Reason:' or
-                            # prefix if model returned plain text.
-                            reason_line = ''
-                            if raw_reason:
-                                for ln in raw_reason.splitlines():
-                                    if ln.strip().lower().startswith('reason:'):
-                                        reason_line = ln.strip()
-                                        break
-                                if not reason_line:
-                                    # fallback: take first non-empty line
-                                    first = next((ln.strip() for ln in raw_reason.splitlines() if ln.strip()), '')
-                                    if first:
-                                        reason_line = 'Reason: ' + first
+                            # Choose a sane Reason line avoiding instruction echoes
+                            reason_line = _pick_reason_line(raw_reason)
                             if reason_line:
                                 rationale_text = reason_line
                         except Exception as e_reason:
@@ -988,16 +1015,7 @@ def run(args, external_llm=None):
                     try:
                         justification_prompt = final_scoring_prompt + "\n" + f"Please output a single line beginning with 'Reason:' that concisely justifies Finish[{pred}] based on the provided context and any retrieved observations. Only output the Reason line."
                         raw_reason = llm_callable(justification_prompt)
-                        reason_line = ''
-                        if raw_reason:
-                            for ln in raw_reason.splitlines():
-                                if ln.strip().lower().startswith('reason:'):
-                                    reason_line = ln.strip()
-                                    break
-                            if not reason_line:
-                                first = next((ln.strip() for ln in raw_reason.splitlines() if ln.strip()), '')
-                                if first:
-                                    reason_line = 'Reason: ' + first
+                        reason_line = _pick_reason_line(raw_reason)
                         if reason_line:
                             rationale_text = reason_line
                     except Exception:
@@ -1054,11 +1072,19 @@ def run(args, external_llm=None):
         # logging are consistent even if the model emitted extra prose.
         scratchpad = getattr(agent, 'scratchpad', '')
         rationale_text = ''
+        import re
+        instr_pat = re.compile(r"do not include|do not output|do not add|don't include|don't output|do not mention", flags=re.IGNORECASE)
         for line in reversed(scratchpad.splitlines()):
             if 'Reason:' not in line:
                 continue
             reason_part = line.split('Reason:', 1)[1].strip()
             if not reason_part:
+                continue
+            # skip instruction-like reason lines
+            if instr_pat.search(reason_part):
+                continue
+            # require some substance
+            if len(reason_part.split()) < 3:
                 continue
             rationale_text = 'Reason: ' + reason_part
             break
