@@ -624,6 +624,8 @@ def run(args, external_llm=None):
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
         gold_label = _canon_label(true_answer)
         long_answer_text = extract_text(ex.get(long_field)) if long_field else ''
+        # Track last non-empty rationale across enforcement/rewrite steps for fallback
+        last_rationale_text = None
 
         print(f"\n===== Example {i+1}/{target_total} =====")
         print('Question:', question)
@@ -916,6 +918,12 @@ def run(args, external_llm=None):
                             reason_line = _pick_reason_line(raw_reason)
                             if reason_line:
                                 rationale_text = reason_line
+                                # update fallback tracker
+                                try:
+                                    if rationale_text and len(rationale_text.strip().strip('`.')) >= 3:
+                                        last_rationale_text = rationale_text
+                                except Exception:
+                                    pass
                         except Exception as e_reason:
                             if getattr(args, 'print_logit_debug', False):
                                 print('Could not synthesize Reason line:', e_reason)
@@ -1107,6 +1115,12 @@ def run(args, external_llm=None):
                         reason_line = _pick_reason_line(raw_reason)
                         if reason_line:
                             rationale_text = reason_line
+                            # update fallback tracker
+                            try:
+                                if rationale_text and len(rationale_text.strip().strip('`.')) >= 3:
+                                    last_rationale_text = rationale_text
+                            except Exception:
+                                pass
                     except Exception:
                         if getattr(args, 'print_logit_debug', False):
                             print('Could not synthesize final Reason line during override')
@@ -1176,6 +1190,12 @@ def run(args, external_llm=None):
             if len(reason_part.split()) < 3 or reason_part.strip() in ('```','``'):
                 continue
             rationale_text = reason_part
+            # update fallback tracker
+            try:
+                if rationale_text and len(rationale_text.strip().strip('`.')) >= 3:
+                    last_rationale_text = rationale_text
+            except Exception:
+                pass
             break
         if not rationale_text:
             rationale_text = ''
@@ -1268,6 +1288,12 @@ def run(args, external_llm=None):
                             reason_line = _pick_reason_line(raw_reason)
                             if reason_line:
                                 rationale_text = reason_line
+                                # update fallback tracker
+                                try:
+                                    if rationale_text and len(rationale_text.strip().strip('`.')) >= 3:
+                                        last_rationale_text = rationale_text
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                         # Update scratchpad to reflect the flip (remove old Finish/Reason lines, append new)
@@ -1365,7 +1391,9 @@ def run(args, external_llm=None):
                         # Path 1: reflexion-based rewrite
                         if enforce_reflexion_flag and hasattr(agent, 'reflect'):
                             try:
-                                instr = (f"\nInstruction: Please reflect and produce a revised reasoning trace that keeps the final decision Finish[{gold_for_rewrite}] and rewrites the 'Reason:' line to be in simple layperson language at {target_range}.")
+                                # If the current prediction is already correct, explicitly forbid changing it.
+                                instr_prefix = "The current answer is already correct. Do NOT change the decision. " if is_correct else ""
+                                instr = (f"\nInstruction: {instr_prefix}Please reflect and produce a revised reasoning trace that keeps the final decision Finish[{gold_for_rewrite}] and rewrites the 'Reason:' line to be in simple layperson language at {target_range}.")
                                 if min_words is not None and max_words is not None:
                                     instr += f" Ensure the rewritten explanation is about {min_words}-{max_words} words (approx.)."
                                 instr += " Output exactly one 'Finish[...]' line and one 'Reason:' line."
@@ -1480,6 +1508,12 @@ def run(args, external_llm=None):
                             if fk_ok and length_ok and rouge_ok and label_ok:
                                 # Accept candidate
                                 rationale_text = cand_rationale
+                                # update fallback tracker
+                                try:
+                                    if rationale_text and len(rationale_text.strip().strip('`.')) >= 3:
+                                        last_rationale_text = rationale_text
+                                except Exception:
+                                    pass
                                 fk_final = cand_fk
                                 rouge1_final = cand_rouge1 if cand_rouge1 is not None else rouge1_orig
                                 rewrite_accepted = True
@@ -1502,6 +1536,16 @@ def run(args, external_llm=None):
                     # end while attempts
         except Exception:
             pass
+
+        # Guarantee non-empty rationale fallback before recording output
+        try:
+            if (not rationale_text) or len(rationale_text.strip().strip('`.')) < 3:
+                if last_rationale_text and len(last_rationale_text.strip().strip('`.')) >= 3:
+                    rationale_text = last_rationale_text
+                else:
+                    rationale_text = pred + '.'
+        except Exception:
+            rationale_text = pred + '.'
 
         out_rows.append({
             'index': i,
