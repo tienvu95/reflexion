@@ -84,6 +84,21 @@ class HFTransformersLLM:
             else:
                 self.device = 'cpu'
 
+        # If running on CPU only, loading very large models (8B+) will attempt
+        # to offload parameters to disk which is fragile and often fails with
+        # confusing errors. Surface a clear error and guidance instead of
+        # letting transformers/accelerate try disk offload automatically.
+        if self.device == 'cpu' and not use_cuda:
+            raise RuntimeError(
+                "Local CPU-only loading of large HF models is not supported in this demo. "
+                "Attempting to load a multi-gigabyte model on CPU will trigger disk offload and likely fail. "
+                "Options:\n"
+                "  1) Use a GPU (set device='cuda' and ensure CUDA + bitsandbytes are installed).\n"
+                "  2) Use the Hugging Face Inference API: set HF_API_TOKEN/HUGGINGFACE_HUB_TOKEN and use the HFInferenceLLM adapter.\n"
+                "  3) Use a much smaller model (e.g., 'gpt2' or other small HF models) for local CPU runs.\n"
+                "If you really want disk offload, use the transformers/accelerate disk_offload utilities directly, but that's outside this helper."
+            )
+
         # If 4-bit requested but CUDA not available, disable and warn
         if self.load_in_4bit and not use_cuda:
             # bitsandbytes quantization only supported on CUDA; unset load_in_4bit

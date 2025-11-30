@@ -1,3 +1,81 @@
+"""Small demo: load an HF transformers model and call run_pubmedqa.run(..., external_llm=llm)
+
+This file is safe to import (it won't load the model on import). Run it as a script
+to load the model and execute the runner.
+
+Usage (bash/zsh):
+  # export HF token if the model is gated
+  export HUGGINGFACE_HUB_TOKEN=your_token_here
+  python hotpotqa_runs/run_local_llm_demo.py
+
+Notes:
+ - Start with `load_in_4bit=False` for debugging; enable 4-bit only after confirming
+   the model loads without errors and `bitsandbytes` is installed.
+ - If you hit model-specific attribute errors (e.g., LlamaAttention.apply_qkv), try
+   upgrading `transformers`, `accelerate`, `safetensors`, and `bitsandbytes`.
+"""
+import os
+from types import SimpleNamespace
+
+def make_args():
+    return SimpleNamespace(
+        dataset='qiaojin/PubMedQA',
+        dataset_config='pqa_labeled',
+        split='train',
+        limit=1,
+        agent='cot',
+        reflexion_strategy='reflexion',
+        model=None,
+        out='pubmed_base_model_results.csv',
+        question_field='question',
+        context_field='context',
+        answer_field='final_decision',
+        long_answer_field='long_answer',
+        max_steps=6,
+        print_debug=True,
+        print_logit_debug=False,
+        keep_fewshot_examples=True,
+    )
+
+
+def demo_run(model_id="meta-llama/Meta-Llama-3.1-8B-Instruct", load_in_4bit=False, device=None):
+    """Load HF model and call run_pubmedqa.run with external_llm.
+
+    This intentionally keeps `limit` small for a quick smoke test.
+    """
+    # Import locally to avoid heavy deps on module import
+    from hotpotqa_runs.hf_transformers_llm import HFTransformersLLM
+    from hotpotqa_runs import run_pubmedqa
+
+    args = make_args()
+
+    print("Creating HFTransformersLLM (this will download/load weights)...")
+    llm = HFTransformersLLM(model_id=model_id, load_in_4bit=load_in_4bit, device=device)
+
+    print("Calling run_pubmedqa.run(...) with external_llm (this may take time)...")
+    results = run_pubmedqa.run(args, external_llm=llm)
+    print("Run finished. Results summary (first rows):")
+    try:
+        # try printing a lightweight preview
+        for r in (results[:5] if hasattr(results, '__len__') else [results]):
+            print(r)
+    except Exception:
+        print(results)
+    return results
+
+
+if __name__ == '__main__':
+    # Simple CLI flags via env vars for quick testing
+    model_id = os.environ.get('HF_MODEL_ID', 'meta-llama/Meta-Llama-3.1-8B-Instruct')
+    use_4bit = os.environ.get('HF_LOAD_4BIT', '0') in ('1', 'true', 'True')
+    device = os.environ.get('HF_DEVICE', None)
+
+    print(f"Demo config: model_id={model_id}, load_in_4bit={use_4bit}, device={device}")
+    try:
+        demo_run(model_id=model_id, load_in_4bit=use_4bit, device=device)
+    except Exception as e:
+        print("Error during demo run:", type(e).__name__, e)
+        print("If this is an attribute error from the model implementation, try upgrading transformers/accelerate/bitsandbytes or use load_in_4bit=False.")
 import os
 """Demo: run CoTAgent using the Hugging Face Inference API.
 
