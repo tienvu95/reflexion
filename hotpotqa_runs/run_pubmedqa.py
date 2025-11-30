@@ -1207,12 +1207,15 @@ def run(args, external_llm=None):
         if is_correct:
             correct += 1
 
+        # Compute original per-example ROUGE-1 F1 for acceptance checks
+        orig_rouge1 = None
         if rouge_scorer_fn and rationale_text and long_answer_text:
             try:
                 score = rouge_scorer_fn.score(long_answer_text, rationale_text)
                 rouge_records.append(score)
+                orig_rouge1 = score['rouge1'].fmeasure
             except Exception:
-                pass
+                orig_rouge1 = None
         if textstat and rationale_text:
             try:
                 # compute multiple readability metrics
@@ -1229,55 +1232,67 @@ def run(args, external_llm=None):
             fk = None
             smog = None
 
+        # Track acceptance/rollback info for Option A
+        fk_orig = fk
+        fk_final = fk
+        rouge1_orig = orig_rouge1
+        rouge1_final = orig_rouge1
+        readability_rewrites_used = 0
+        rewrite_accepted = False
+
         # Readability-guided rewrite: if readability is outside target range,
         # request the LLM to rewrite the explanation keeping the gold label.
         try:
             if REWRITE_ON_READABILITY and textstat and rationale_text is not None and fk is not None:
                 if fk < READABILITY_MIN or fk > READABILITY_MAX:
-                    # Decide enforcement strategy: via reflexion (agent.reflect + rerun)
+                    # Prepare acceptance/rollback loop (Option A)
                     target_range = f"about {int(READABILITY_MIN)}th-{int(READABILITY_MAX)}th grade"
-                    gold_for_rewrite = gold_label if gold_label in ('yes','no','maybe') else pred
-
-                    # Compute length targets (word counts) if long answer present and enforcement requested
+                    orig_pred = pred
+                    gold_for_rewrite = gold_label if gold_label in ('yes','no','maybe') else orig_pred
                     long_words = len(long_answer_text.split()) if long_answer_text else 0
                     length_tol = float(getattr(args, 'length_tolerance', 0.2))
                     enforce_length_flag = bool(getattr(args, 'enforce_length', False))
                     enforce_reflexion_flag = bool(getattr(args, 'enforce_readability_reflexion', False))
+                    rouge_drop_threshold = float(getattr(args, 'rouge_drop_threshold', 0.05))
+                    max_rr = int(getattr(args, 'max_readability_rewrites', 1))
+
                     min_words = None
                     max_words = None
                     if enforce_length_flag and long_words > 0:
                         min_words = max(1, int(long_words * (1.0 - length_tol)))
                         max_words = max(1, int(long_words * (1.0 + length_tol)))
 
-                    # If user requested reflexion-based enforcement and agent supports reflect(), use that path
-                    try:
-                        scoring_prompt_local = ''
+                    attempts_used = 0
+                    while attempts_used < max_rr:
+                        attempts_used += 1
+                        readability_rewrites_used = attempts_used
+
+                        # Build scoring prompt when available
                         try:
-                            if hasattr(agent, '_build_agent_prompt'):
-                                scoring_prompt_local = agent._build_agent_prompt() + "\nAnswer:"
+                            scoring_prompt_local = agent._build_agent_prompt() + "\nAnswer:" if hasattr(agent, '_build_agent_prompt') else ''
                         except Exception:
                             scoring_prompt_local = ''
 
+                        cand_rationale = None
+                        cand_label = orig_pred
+
+                        # Path 1: reflexion-based rewrite
                         if enforce_reflexion_flag and hasattr(agent, 'reflect'):
-                            # Inject an instruction into the agent's scratchpad and ask it to reflect and then rerun
-                            instr = (
-                                f"\nInstruction: Please reflect and produce a revised reasoning trace that keeps the final decision Finish[{gold_for_rewrite}] and rewrites the 'Reason:' line to be in simple layperson language at {target_range}."
-                            )
-                            if min_words is not None and max_words is not None:
-                                instr += f" Ensure the rewritten explanation is about {min_words}-{max_words} words (approx.)."
-                            instr += " Output exactly one 'Finish[...]' line and one 'Reason:' line."
                             try:
-                                agent.scratchpad += instr
-                            except Exception:
+                                instr = (f"\nInstruction: Please reflect and produce a revised reasoning trace that keeps the final decision Finish[{gold_for_rewrite}] and rewrites the 'Reason:' line to be in simple layperson language at {target_range}.")
+                                if min_words is not None and max_words is not None:
+                                    instr += f" Ensure the rewritten explanation is about {min_words}-{max_words} words (approx.)."
+                                instr += " Output exactly one 'Finish[...]' line and one 'Reason:' line."
                                 try:
-                                    setattr(agent, '_injected_instruction', instr)
+                                    agent.scratchpad += instr
                                 except Exception:
-                                    pass
-                            # perform reflection and rerun to let the agent update its answer/rationale
-                            try:
+                                    try:
+                                        setattr(agent, '_injected_instruction', instr)
+                                    except Exception:
+                                        pass
                                 strat = map_reflexion_str(args.reflexion_strategy)
                                 agent.reflect(strat)
-                                # rerun without reset to preserve context
+                                # rerun without resetting
                                 try:
                                     import inspect
                                     sig = inspect.signature(agent.run)
@@ -1290,47 +1305,42 @@ def run(args, external_llm=None):
                                         agent.run()
                                     except Exception:
                                         pass
-                                # extract updated rationale from scratchpad
-                                scratch = getattr(agent, 'scratchpad', '')
-                                new_rationale = ''
+                                # Extract new reason and label from scratchpad/answer
+                                import re as _refl_re
+                                scratch = getattr(agent, 'scratchpad', '') or ''
+                                # label
                                 try:
-                                    instr_pat_local = re.compile(r"do not include|do not output|do not add|don't include|don't output|do not mention", flags=re.IGNORECASE)
+                                    cand_label = coerce_yes_no_maybe(getattr(agent, 'answer', ''), scratch)
+                                except Exception:
+                                    cand_label = orig_pred
+                                # rationale
+                                try:
+                                    instr_pat_local = _refl_re.compile(r"do not include|do not output|do not add|don't include|don't output|do not mention", flags=_refl_re.IGNORECASE)
                                     for line in reversed(scratch.splitlines()):
                                         if 'Reason:' not in line:
                                             continue
                                         reason_part = line.split('Reason:', 1)[1].strip()
-                                        if not reason_part:
+                                        if not reason_part or instr_pat_local.search(reason_part) or len(reason_part.split()) < 3:
                                             continue
-                                        if instr_pat_local.search(reason_part):
-                                            continue
-                                        if len(reason_part.split()) < 3:
-                                            continue
-                                        new_rationale = 'Reason: ' + reason_part
+                                        cand_rationale = 'Reason: ' + reason_part
                                         break
                                 except Exception:
-                                    new_rationale = ''
-                                if new_rationale:
-                                    rationale_text = new_rationale
-                                else:
-                                    # fallback to prompt-based rewrite below
-                                    pass
+                                    cand_rationale = None
                             except Exception as e_refl:
                                 if getattr(args, 'print_debug', False):
                                     print('Reflexion-based enforcement failed:', type(e_refl).__name__, e_refl)
 
-                        # If we still don't have a suitable rewritten rationale (or reflexion not used), fall back to prompt-based rewrite
-                        if not (rationale_text and rationale_text.strip() and rationale_text.strip().lower().startswith('reason:')):
-                            # build rewrite instruction including length constraints when requested
-                            rewrite_instruction = (
-                                f"Rewrite the existing explanation to be in simple layperson language at {target_range}. "
-                                f"Keep the first-line answer fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second line beginning with 'Reason:' followed by the rewritten explanation."
-                            )
-                            if min_words is not None and max_words is not None:
-                                rewrite_instruction += f" The rewritten explanation should be about {min_words}-{max_words} words (approx.)."
-                            rewrite_prompt = (scoring_prompt_local or '') + "\n" + rewrite_instruction + "\nPrevious explanation:\n" + rationale_text
+                        # Path 2: prompt-based rewrite when no candidate yet
+                        if cand_rationale is None:
                             try:
+                                rewrite_instruction = (
+                                    f"Rewrite the existing explanation to be in simple layperson language at {target_range}. "
+                                    f"Keep the first-line answer fixed as '{gold_for_rewrite}'. Output exactly two lines: first the one-word label (Yes/No/Maybe), and second line beginning with 'Reason:' followed by the rewritten explanation."
+                                )
+                                if min_words is not None and max_words is not None:
+                                    rewrite_instruction += f" The rewritten explanation should be about {min_words}-{max_words} words (approx.)."
+                                rewrite_prompt = (scoring_prompt_local or '') + "\n" + rewrite_instruction + "\nPrevious explanation:\n" + rationale_text
                                 new_out = llm_callable(rewrite_prompt)
-                                # extract label and reason
                                 import re as _re
                                 lines = [ln.strip() for ln in (new_out or '').splitlines() if ln.strip()]
                                 new_label = None
@@ -1345,24 +1355,61 @@ def run(args, external_llm=None):
                                     if m2:
                                         new_reason = m2.group(1).strip()
                                 if new_reason:
-                                    rationale_text = 'Reason: ' + new_reason if not new_reason.lower().startswith('reason:') else new_reason
-                                else:
-                                    rationale_text = rationale_text + '\n\n(Rewriting attempt failed; original explanation preserved)'
-                                # recompute readability metrics for updated explanation
-                                try:
-                                    fk_new = textstat.flesch_kincaid_grade(rationale_text)
-                                    smog_new = textstat.smog_index(rationale_text)
-                                    fk_grades.append(fk_new)
-                                    smog_indices.append(smog_new)
-                                    readability_scores.append(textstat.flesch_reading_ease(rationale_text))
-                                except Exception:
-                                    pass
+                                    cand_rationale = 'Reason: ' + new_reason if not new_reason.lower().startswith('reason:') else new_reason
+                                cand_label = new_label or orig_pred
                             except Exception as e_rew:
                                 if getattr(args, 'print_debug', False):
                                     print('Rewrite attempt failed:', type(e_rew).__name__, e_rew)
-                    except Exception:
-                        # any failure in the enforcement path should not crash the run
-                        pass
+
+                        # Evaluate candidate against acceptance criteria
+                        if cand_rationale:
+                            try:
+                                cand_fk = textstat.flesch_kincaid_grade(cand_rationale)
+                            except Exception:
+                                cand_fk = None
+                            # word-length check
+                            length_ok = True
+                            if enforce_length_flag and min_words is not None and max_words is not None:
+                                try:
+                                    wc = len(cand_rationale.replace('Reason:', '').strip().split())
+                                    length_ok = (min_words <= wc <= max_words)
+                                except Exception:
+                                    length_ok = True
+                            # rouge check
+                            rouge_ok = True
+                            cand_rouge1 = None
+                            if rouge_scorer_fn and long_answer_text:
+                                try:
+                                    sc = rouge_scorer_fn.score(long_answer_text, cand_rationale)
+                                    cand_rouge1 = sc['rouge1'].fmeasure
+                                    if rouge1_orig is not None:
+                                        rouge_ok = (cand_rouge1 >= (rouge1_orig - rouge_drop_threshold))
+                                except Exception:
+                                    rouge_ok = True
+
+                            fk_ok = (cand_fk is not None and READABILITY_MIN <= cand_fk <= READABILITY_MAX)
+                            label_ok = (cand_label == orig_pred)
+
+                            if fk_ok and length_ok and rouge_ok and label_ok:
+                                # Accept candidate
+                                rationale_text = cand_rationale
+                                fk_final = cand_fk
+                                rouge1_final = cand_rouge1 if cand_rouge1 is not None else rouge1_orig
+                                rewrite_accepted = True
+                                # Freeze label back to original for safety
+                                pred = orig_pred
+                                try:
+                                    agent.answer = pred
+                                except Exception:
+                                    pass
+                                break
+                        # If no acceptable candidate, continue loop
+                        pred = orig_pred
+                        try:
+                            agent.answer = pred
+                        except Exception:
+                            pass
+                    # end while attempts
         except Exception:
             pass
 
@@ -1376,6 +1423,14 @@ def run(args, external_llm=None):
             'scratchpad': scratchpad,
             'reason_text': rationale_text,
             'correct': is_correct,
+            'fk_orig': fk_orig,
+            'fk_final': fk_final,
+            'fk_improved': (None if (fk_orig is None or fk_final is None) else (fk_final - fk_orig)),
+            'rouge1_orig': rouge1_orig,
+            'rouge1_final': rouge1_final,
+            'rouge1_delta': (None if (rouge1_orig is None or rouge1_final is None) else (rouge1_final - rouge1_orig)),
+            'readability_rewrites_used': readability_rewrites_used,
+            'rewrite_accepted': rewrite_accepted,
         })
 
         if total % 10 == 0 or total == target_total:
@@ -1390,7 +1445,7 @@ def run(args, external_llm=None):
     # write CSV
     out_path = args.out or f'results_{args.dataset.replace("/","_")}_{args.split}.csv'
     with open(out_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','scratchpad','reason_text','correct'])
+        writer = csv.DictWriter(f, fieldnames=['index','question','context','true_answer','long_answer','predicted_answer','scratchpad','reason_text','correct','fk_orig','fk_final','fk_improved','rouge1_orig','rouge1_final','rouge1_delta','readability_rewrites_used','rewrite_accepted'])
         writer.writeheader()
         for r in out_rows:
             writer.writerow(r)
@@ -1492,6 +1547,8 @@ if __name__ == '__main__':
     p.add_argument('--enforce-readability-reflexion', action='store_true', help='When FK outside range, trigger agent.reflect and rerun (enforce via reflexion)')
     p.add_argument('--enforce-length', action='store_true', help='Enforce answer length roughly matching gold long_answer (within tolerance)')
     p.add_argument('--length-tolerance', type=float, default=0.2, help='Relative tolerance for answer length when --enforce-length is set (e.g., 0.2 = +/-20%)')
+    p.add_argument('--max-readability-rewrites', type=int, default=1, help='Maximum attempts to rewrite rationale for readability acceptance')
+    p.add_argument('--rouge-drop-threshold', type=float, default=0.05, help='Maximum allowed drop in ROUGE-1 F1 when accepting rewritten rationale')
     args = p.parse_args()
 
     # normalize limit

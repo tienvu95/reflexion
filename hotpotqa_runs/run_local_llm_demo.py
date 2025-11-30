@@ -17,24 +17,66 @@ Notes:
 import os
 from types import SimpleNamespace
 
-def make_args():
+def make_args(model_id=None, load_in_4bit=False, device=None):
+    # Prefer explicit device if provided; otherwise, try torch if available.
+    dev = device
+    if dev is None:
+        try:
+            import torch  # optional
+            dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+        except Exception:
+            dev = None
+
     return SimpleNamespace(
+        # Dataset config
         dataset='qiaojin/PubMedQA',
         dataset_config='pqa_labeled',
         split='train',
-        limit=1,
+        limit=5,  # small test
+
+        # Agent + reflexion
         agent='cot',
         reflexion_strategy='reflexion',
-        model=None,
-        out='pubmed_base_model_results.csv',
+
+        # Model + loading preferences (not used when passing external_llm, but kept for completeness)
+        model=model_id,
+        use_transformers=True,
+        use_unsloth=False,
+        hf_token=os.environ.get('HF_API_TOKEN'),
+        out=None,
+
+        # Field mapping
         question_field='question',
         context_field='context',
         answer_field='final_decision',
         long_answer_field='long_answer',
+
+        # Agent controls
         max_steps=6,
         print_debug=True,
-        print_logit_debug=False,
+        print_logit_debug=True,  # enable to see yes/no/maybe probs for Brier
         keep_fewshot_examples=True,
+
+        # Local transformers options
+        device=dev,
+        load_in_4bit=bool(load_in_4bit),
+        max_seq_length=8192,
+
+        # Confidence/reflexion loop
+        confidence_threshold=0.6,
+        max_reflect_attempts=3,
+        force_finish_format=False,
+        force_argmax_final=False,
+
+        # Readability / rewrite / enforcement controls
+        readability_min=6.0,           # Flesch-Kincaid lower bound (grade)
+        readability_max=10.0,          # Flesch-Kincaid upper bound (grade)
+        rewrite_on_readability=True,   # fallback rewrite prompt if reflexion fails
+        enforce_readability_reflexion=True,  # trigger agent.reflect + rerun to enforce FK
+        enforce_length=True,                 # try to match rationale length to long_answer
+        length_tolerance=0.20,               # +/-20% around gold long_answer word count
+        max_readability_rewrites=1,          # Option A acceptance loop attempts
+        rouge_drop_threshold=0.05,           # Accept rewrite only if ROUGE-1 drop <= this
     )
 
 
@@ -47,7 +89,7 @@ def demo_run(model_id="meta-llama/Meta-Llama-3.1-8B-Instruct", load_in_4bit=Fals
     from hotpotqa_runs.hf_transformers_llm import HFTransformersLLM
     from hotpotqa_runs import run_pubmedqa
 
-    args = make_args()
+    args = make_args(model_id=model_id, load_in_4bit=load_in_4bit, device=device)
 
     print("Creating HFTransformersLLM (this will download/load weights)...")
     llm = HFTransformersLLM(model_id=model_id, load_in_4bit=load_in_4bit, device=device)
