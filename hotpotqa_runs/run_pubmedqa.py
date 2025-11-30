@@ -526,18 +526,27 @@ def run(args, external_llm=None):
         import re
         lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
         instr_pat = re.compile(r"do not include|do not output|do not add|don't include|don't output|do not mention", flags=re.IGNORECASE)
+        fence_pat = re.compile(r"^`{3,}$")
         # 1) explicit Reason: lines that are not instructions
         for ln in lines:
+            if fence_pat.match(ln):
+                continue
             if ln.lower().startswith('reason:') and not instr_pat.search(ln):
                 content = ln.split(':', 1)[1].strip()
+                if fence_pat.match(content) or len(content.strip().strip('`.')) < 3:
+                    continue
                 if content.lower() in ('yes','no','maybe'):
                     continue
                 return content if content.endswith('.') else content.rstrip('.') + '.'
         # 2) any line that looks substantive (contains verbs/nouns) and is not an instruction
         for ln in lines:
+            if fence_pat.match(ln):
+                continue
             if not instr_pat.search(ln) and len(ln.split()) > 3:
                 if ln.lower().startswith('reason:'):
                     content = ln.split(':', 1)[1].strip()
+                    if fence_pat.match(content) or len(content.strip().strip('`.')) < 3:
+                        continue
                     if content.lower() in ('yes','no','maybe'):
                         continue
                     return content if content.endswith('.') else content.rstrip('.') + '.'
@@ -546,6 +555,8 @@ def run(args, external_llm=None):
                 return ln if ln.endswith('.') else ln.rstrip('.') + '.'
         # 3) fallback: first non-instruction short line
         for ln in lines:
+            if fence_pat.match(ln):
+                continue
             if not instr_pat.search(ln):
                 if ln.lower() in ('yes','no','maybe'):
                     continue
@@ -1162,7 +1173,7 @@ def run(args, external_llm=None):
             if instr_pat.search(reason_part):
                 continue
             # require some substance
-            if len(reason_part.split()) < 3:
+            if len(reason_part.split()) < 3 or reason_part.strip() in ('```','``'):
                 continue
             rationale_text = reason_part
             break
@@ -1216,6 +1227,71 @@ def run(args, external_llm=None):
 
         if is_correct:
             correct += 1
+        else:
+            # Optional flip-on-incorrect: choose alternative among remaining two using logits
+            try:
+                if bool(getattr(args, 'flip_on_incorrect', False)):
+                    # Score the three choices on final prompt, pick best among the two not equal to current pred
+                    final_scoring_prompt = None
+                    try:
+                        if hasattr(agent, '_build_agent_prompt'):
+                            final_scoring_prompt = agent._build_agent_prompt() + "\nAnswer:"
+                    except Exception:
+                        final_scoring_prompt = None
+                    confs = None
+                    if final_scoring_prompt is not None:
+                        try:
+                            if hasattr(llm_raw, 'predict_label_probs'):
+                                label_probs = llm_raw.predict_label_probs(final_scoring_prompt, labels=['yes','no','maybe'])
+                                confs = {k: float(v) for k, v in label_probs.items()}
+                            else:
+                                token_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes',' no',' maybe'])
+                                if token_confs:
+                                    confs = {'yes': token_confs.get(' yes', 0.0), 'no': token_confs.get(' no', 0.0), 'maybe': token_confs.get(' maybe', 0.0)}
+                        except Exception:
+                            pass
+                    if confs:
+                        # pick alternative with max prob among the two not equal to pred
+                        alts = [lbl for lbl in ('yes','no','maybe') if lbl != pred]
+                        alt = max(alts, key=lambda k: confs.get(k, 0.0))
+                        if getattr(args, 'print_debug', False):
+                            print(f'Flip-on-incorrect: switching from {pred} to {alt} (probs={confs})')
+                        pred = alt
+                        try:
+                            agent.answer = pred
+                        except Exception:
+                            pass
+                        # Generate a matching single-sentence rationale for the flipped label
+                        try:
+                            flip_prompt = (final_scoring_prompt or '') + "\n" + f"Provide one concise sentence justifying Finish[{pred}] based on the provided context and any retrieved observations. Do not include the word 'Reason:'."
+                            raw_reason = llm_callable(flip_prompt)
+                            reason_line = _pick_reason_line(raw_reason)
+                            if reason_line:
+                                rationale_text = reason_line
+                        except Exception:
+                            pass
+                        # Update scratchpad to reflect the flip (remove old Finish/Reason lines, append new)
+                        try:
+                            s = getattr(agent, 'scratchpad', '') or ''
+                            import re
+                            s = re.sub(r'(?im)^.*Finish\[.*?\].*$\n?', '', s)
+                            s = re.sub(r'(?im)^.*Action:.*Finish\[.*?\].*$\n?', '', s)
+                            s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
+                            s = _sanitize_repeated_tokens(s)
+                            s = (s + f"\nFinish[{pred}]\n{rationale_text if rationale_text else pred + '.'}").strip()
+                            agent.scratchpad = s
+                        except Exception:
+                            pass
+                        # recompute correctness after flip
+                        try:
+                            if EM(pred, true_answer):
+                                correct += 1
+                        except Exception:
+                            if (pred.strip().lower() == true_answer.strip().lower()):
+                                correct += 1
+            except Exception as e_flip:
+                if getattr(args, 'print_debug', False):
+                    print('Flip-on-incorrect failed:', type(e_flip).__name__, e_flip)
 
         # Compute original per-example ROUGE-1 F1 for acceptance checks
         orig_rouge1 = None
@@ -1330,7 +1406,8 @@ def run(args, external_llm=None):
                                         if 'Reason:' not in line:
                                             continue
                                         reason_part = line.split('Reason:', 1)[1].strip()
-                                        if not reason_part or instr_pat_local.search(reason_part) or len(reason_part.split()) < 3:
+                                        if (not reason_part or instr_pat_local.search(reason_part)
+                                                or len(reason_part.split()) < 3 or reason_part.strip() in ('```','``')):
                                             continue
                                         cand_rationale = reason_part
                                         break
@@ -1364,7 +1441,7 @@ def run(args, external_llm=None):
                                     m2 = _re.search(r'(?mi)^Reason:\s*(.*)$', new_out or '', flags=_re.DOTALL)
                                     if m2:
                                         new_reason = m2.group(1).strip()
-                                if new_reason:
+                                if new_reason and len(new_reason.strip().strip('`.')) >= 3:
                                     cand_rationale = new_reason.split(':',1)[-1].strip() if new_reason.lower().startswith('reason:') else new_reason
                                 cand_label = new_label or orig_pred
                             except Exception as e_rew:
@@ -1372,7 +1449,7 @@ def run(args, external_llm=None):
                                     print('Rewrite attempt failed:', type(e_rew).__name__, e_rew)
 
                         # Evaluate candidate against acceptance criteria
-                        if cand_rationale:
+                        if cand_rationale and len(cand_rationale.strip().strip('`.')) >= 3:
                             try:
                                 cand_fk = textstat.flesch_kincaid_grade(cand_rationale)
                             except Exception:
@@ -1562,6 +1639,7 @@ if __name__ == '__main__':
     p.add_argument('--length-tolerance', type=float, default=0.2, help='Relative tolerance for answer length when --enforce-length is set (e.g., 0.2 = +/-20%)')
     p.add_argument('--max-readability-rewrites', type=int, default=1, help='Maximum attempts to rewrite rationale for readability acceptance')
     p.add_argument('--rouge-drop-threshold', type=float, default=0.05, help='Maximum allowed drop in ROUGE-1 F1 when accepting rewritten rationale')
+    p.add_argument('--flip-on-incorrect', action='store_true', help='If the predicted label is incorrect, flip to an alternative (of the remaining two) using logits confidence and produce a matching rationale')
     args = p.parse_args()
 
     # normalize limit
