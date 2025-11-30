@@ -9,9 +9,7 @@ except Exception:
 COT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
-- Immediately on the next line, output `Reason: <brief justification>` that cites the key evidence from the provided context.
-
-READABILITY REQUIREMENT: Write the Reason as ONE plain-language sentence suitable for a 6th–8th grade reading level (Flesch-Kincaid ≈6–8). Avoid jargon; prefer everyday words; <= 25 words.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Do not place the final label or the Reason on the same line as any other text. Thought can be used for intermediate reasoning. Always rely on the provided context and restrict the final answer to yes, no, or maybe.
 Here are some examples:
@@ -24,9 +22,7 @@ Question: {question}{scratchpad}"""
 COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
-- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context.
-
-READABILITY REQUIREMENT: Reason line must be a single plain sentence at a 6th–8th grade reading level (Flesch-Kincaid ≈6–8), ≤ 25 words, minimal jargon.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Do not include the final label or the Reason on the same line as any other commentary. Thought can be used for intermediate reasoning. Always rely on the provided context.
 Here are some examples:
@@ -43,7 +39,7 @@ If your reflection identifies a corrected label, you MUST include an explicit re
 - `Finish[yes]` or `Finish[no]` or `Finish[maybe]`
 - or `Recommendation: Finish[yes|no|maybe]`
 
-If you include a recommended label, also include a one-line justification prefixed with `Reason:` explaining why that label is correct based on the evidence. The Reason MUST be a single plain-language sentence targeting 6th–8th grade readability (≤ 25 words, minimal jargon).
+If you include a recommended label, also include a one-line justification prefixed with `Reason:` explaining why that label is correct based on the evidence. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Use complete sentences. Here are some examples:
 {examples}
@@ -90,9 +86,7 @@ cot_reflect_prompt = PromptTemplate(
 COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
-- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context.
-
-READABILITY REQUIREMENT: Make the Reason one plain sentence suitable for grade 6–8 (Flesch-Kincaid ≈6–8), ≤ 25 words, minimal jargon.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Do not place the final label or the Reason on the same line as other commentary. Thought can be used for intermediate reasoning. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
@@ -105,9 +99,7 @@ Question: {question}{scratchpad}"""
 COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
-- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context.
-
-READABILITY REQUIREMENT: Reason sentence must target grade 6–8 readability, be ≤ 25 words, and avoid jargon.
+- Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Do not include the final label or Reason on the same line as any other text. Thought can be used for intermediate reasoning. Always ground your reasoning in the provided context and respond with yes, no, or maybe.
 Here are some examples:
@@ -120,7 +112,7 @@ Question: {question}{scratchpad}"""
 
 COT_SIMPLE_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial with a biomedical abstract and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose the failure and propose a concise plan that explains how to better use the PubMed context to arrive at the correct yes/no/maybe answer, including when to present the `Reason:` justification.
 
-Any `Reason:` you produce or recommend must be a single plain-language sentence for grade 6–8 readability (≤ 25 words, minimal jargon).
+Any `Reason:` you produce or recommend must be a single plain-language sentence at a 6th–8th grade reading level and less than 50 words.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -155,7 +147,7 @@ IMPORTANT OUTPUT FORMAT (must follow exactly):
 - When you choose `Finish`, output a single line `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
 - Immediately on the next line, output `Reason: <brief justification>` that cites the supporting evidence.
 
-READABILITY REQUIREMENT: Reason must be one plain sentence at grade 6–8 readability (≤ 25 words, minimal jargon, clear everyday words).
+READABILITY REQUIREMENT: Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Do not include extra commentary on the same lines as `Finish[...]` or `Reason:`. Base your reasoning on retrieved biomedical evidence and finish with yes, no, or maybe followed by the Reason line.
 Here are some examples:
@@ -174,7 +166,7 @@ IMPORTANT OUTPUT FORMAT (must follow exactly):
     - `Finish[<label>]` where `<label>` is `yes`, `no`, or `maybe`.
     - `Reason: <brief justification>` citing supporting evidence.
 
-READABILITY REQUIREMENT: Reason line must be a single plain-language sentence (grade 6–8 readability, ≤ 25 words, minimal jargon).
+READABILITY REQUIREMENT: Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 When you output any `Action`, OUTPUT EXACTLY one line that begins with `Action:` followed by one of the three action forms above (for example: `Action: Search[term]` or `Action: Finish[yes]`). Do not include extra commentary on the same line. If you want to reason, put it under `Thought:` lines only. Only finish with the labels yes, no, or maybe.
 
@@ -190,7 +182,7 @@ REACT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question with interl
 (3) Finish[answer], which returns the answer and finishes the task and must be followed by a `Reason:` line grounded in the retrieved evidence.
 You may take as many steps as necessary, but always base your reasoning on the retrieved biomedical evidence and finish with yes, no, or maybe followed by a Reason line.
 
-READABILITY REQUIREMENT: Any Reason line must be a single plain sentence at grade 6–8 readability (≤ 25 words, minimal jargon).
+READABILITY REQUIREMENT: Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -205,7 +197,7 @@ REFLECTION_AFTER_LAST_TRIAL_HEADER = 'The following reflection(s) give a plan to
 LAST_TRIAL_HEADER = 'You have attempted to answer the following question before and failed. Below is the last trial you attempted to answer the question.\n'
 
 REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you had access to a biomedical docstore (PubMed context or Wikipedia fallback) and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or exhausted your reasoning steps. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the biomedical evidence that mitigates the same failure. Use complete sentences.
-If your reflection yields a corrected answer recommendation, you MUST include an explicit recommendation line using one of the exact forms: `Finish[yes]`, `Finish[no]`, `Finish[maybe]` or `Recommendation: Finish[yes|no|maybe]`. If you include such a recommendation, also add a one-line `Reason:` justification for the recommended label. The Reason MUST be one plain sentence at grade 6–8 readability (≤ 25 words, minimal jargon).
+If your reflection yields a corrected answer recommendation, you MUST include an explicit recommendation line using one of the exact forms: `Finish[yes]`, `Finish[no]`, `Finish[maybe]` or `Recommendation: Finish[yes|no|maybe]`. If you include such a recommendation, also add a one-line `Reason:` justification for the recommended label. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Here are some examples:
 {examples}
