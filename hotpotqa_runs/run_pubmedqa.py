@@ -786,11 +786,11 @@ def run(args, external_llm=None):
                 # final answer and produce a short Reason line from the LLM to
                 # align the agent's rationale with the enforced label.
                 if argmax_label is not None and argmax_prob >= threshold:
-                    if getattr(args, 'print_logit_debug', False):
-                        print(f'Enforcing top-logit label "{argmax_label}" with prob {argmax_prob:.4f}')
+                    print(f'Enforcing top-logit label "{argmax_label}" with prob {argmax_prob:.4f}')
                     try:
                         pred = argmax_label
                         enforced_label = pred
+                        print(f'--> enforced_label set (attempt-level) = {enforced_label}')
                         try:
                             agent.answer = pred
                         except Exception:
@@ -976,10 +976,10 @@ def run(args, external_llm=None):
                 do_force = bool(getattr(args, 'force_argmax_final', False)) or (argmax_prob >= threshold and argmax_label != pred)
                 if do_force:
                     mode = 'FORCED' if getattr(args, 'force_argmax_final', False) else 'threshold'
-                    if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
-                        print(f'Overriding final prediction ({mode}) from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
+                    print(f'Overriding final prediction ({mode}) from "{pred}" to top-logit "{argmax_label}" (p={argmax_prob:.4f})')
                     pred = argmax_label
                     enforced_label = pred
+                    print(f'--> enforced_label set (final-pass) = {enforced_label}')
                     try:
                         agent.answer = pred
                     except Exception:
@@ -1089,8 +1089,8 @@ def run(args, external_llm=None):
         # Finish[...] lines into their scratchpad after we canonicalize.
         try:
             if enforced_label is not None and pred != enforced_label:
-                if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
-                    print(f'Final override before save: setting pred from "{pred}" to enforced_label "{enforced_label}"')
+                # Always log final override so it's visible in non-debug runs
+                print(f'Final override before save: setting pred from "{pred}" to enforced_label "{enforced_label}"')
                 pred = enforced_label
                 try:
                     agent.answer = pred
@@ -1099,6 +1099,8 @@ def run(args, external_llm=None):
         except Exception:
             pass
 
+        # Log what will be appended/saved for this example
+        print(f'Will save predicted_answer="{pred}" (gold="{true_answer}")')
         pred_labels.append(pred)
         gold_labels.append(gold_label)
 
