@@ -1107,6 +1107,22 @@ def run(args, external_llm=None):
         except Exception:
             pass
         prob_records.append((prob_dict_for_example, gold_label))
+        # Debug: show the probabilities recorded for Brier computation
+        try:
+            if getattr(args, 'print_debug', False):
+                try:
+                    print('\n--- Brier debug: initial prob record ---')
+                    print('gold_label =', gold_label)
+                    print('probs =', prob_dict_for_example)
+                    # quick sanity: sum of probs
+                    if isinstance(prob_dict_for_example, dict):
+                        s = sum(float(v) for v in prob_dict_for_example.values())
+                        print(f'sum(probs) = {s:.6f}')
+                    print('--- end brier debug ---\n')
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Final enforcement pass: if we can score the agent's final prompt and
         # the transformers argmax label is confident, override the agent's
         # prediction to match the argmax. This ensures we don't end up with a
@@ -1133,6 +1149,21 @@ def run(args, external_llm=None):
             if final_confs is not None:
                 # update prob record to final scoring
                 prob_records[-1] = (final_confs, gold_label)
+                # Debug: show the final probabilities used for Brier
+                try:
+                    if getattr(args, 'print_debug', False):
+                        try:
+                            print('\n--- Brier debug: final prob record ---')
+                            print('gold_label =', gold_label)
+                            print('probs =', final_confs)
+                            if isinstance(final_confs, dict):
+                                s = sum(float(v) for v in final_confs.values())
+                                print(f'sum(probs) = {s:.6f}')
+                            print('--- end brier debug ---\n')
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 map_token_to_label = {' yes': 'yes', ' no': 'no', ' maybe': 'maybe'}
                 argmax_token = max(final_confs, key=lambda k: final_confs.get(k, 0.0))
                 argmax_label = map_token_to_label.get(argmax_token, 'maybe')
