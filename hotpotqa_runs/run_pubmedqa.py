@@ -1106,6 +1106,17 @@ def run(args, external_llm=None):
                 prob_dict_for_example = {k.strip(): float(v) for k, v in confs.items()}
         except Exception:
             pass
+        # Ensure label-keyed probabilities for Brier ('yes','no','maybe')
+        try:
+            if isinstance(prob_dict_for_example, dict):
+                p_map = {
+                    'yes': float(prob_dict_for_example.get('yes', prob_dict_for_example.get(' yes', 0.0))),
+                    'no': float(prob_dict_for_example.get('no', prob_dict_for_example.get(' no', 0.0))),
+                    'maybe': float(prob_dict_for_example.get('maybe', prob_dict_for_example.get(' maybe', 0.0))),
+                }
+                prob_dict_for_example = p_map
+        except Exception:
+            pass
         prob_records.append((prob_dict_for_example, gold_label))
         # Debug: show the probabilities recorded for Brier computation
         try:
@@ -1147,8 +1158,16 @@ def run(args, external_llm=None):
                 except Exception:
                     final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
             if final_confs is not None:
-                # update prob record to final scoring
-                prob_records[-1] = (final_confs, gold_label)
+                # update prob record to final scoring (label-keyed)
+                try:
+                    p_map_final = {
+                        'yes': float(final_confs.get('yes', final_confs.get(' yes', 0.0))),
+                        'no': float(final_confs.get('no', final_confs.get(' no', 0.0))),
+                        'maybe': float(final_confs.get('maybe', final_confs.get(' maybe', 0.0))),
+                    }
+                except Exception:
+                    p_map_final = final_confs
+                prob_records[-1] = (p_map_final, gold_label)
                 # Debug: show the final probabilities used for Brier
                 try:
                     if getattr(args, 'print_debug', False):
@@ -1733,8 +1752,17 @@ def run(args, external_llm=None):
     valid_probs = [(prob, gold) for prob, gold in prob_records if prob is not None]
     if valid_probs:
         def _brier(prob_dict, gold):
-            classes = ('yes', 'no', 'maybe')
-            return sum((prob_dict.get(cls, 0.0) - (1.0 if gold == cls else 0.0))**2 for cls in classes)
+            # Normalize and accept both token-keyed and label-keyed dicts
+            p_yes = float(prob_dict.get('yes', prob_dict.get(' yes', 0.0)))
+            p_no = float(prob_dict.get('no', prob_dict.get(' no', 0.0)))
+            p_maybe = float(prob_dict.get('maybe', prob_dict.get(' maybe', 0.0)))
+            s = p_yes + p_no + p_maybe
+            if s > 0:
+                p_yes, p_no, p_maybe = (p_yes/s, p_no/s, p_maybe/s)
+            y_yes = 1.0 if gold == 'yes' else 0.0
+            y_no = 1.0 if gold == 'no' else 0.0
+            y_maybe = 1.0 if gold == 'maybe' else 0.0
+            return (p_yes - y_yes)**2 + (p_no - y_no)**2 + (p_maybe - y_maybe)**2
 
         mean_brier = sum(_brier(prob, gold) for prob, gold in valid_probs) / len(valid_probs)
         print(f'Mean Brier (0-2 scale over {len(valid_probs)} examples): {mean_brier:.6f}')
