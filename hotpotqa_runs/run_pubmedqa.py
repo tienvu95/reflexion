@@ -1578,7 +1578,28 @@ def run(args, external_llm=None):
                             fk_ok = (cand_fk is not None and READABILITY_MIN <= cand_fk <= READABILITY_MAX)
                             label_ok = (cand_label == orig_pred)
 
-                            if fk_ok and length_ok and rouge_ok and label_ok:
+                            # Also allow acceptance if readability moves closer to the target band
+                            improvement_ok = False
+                            try:
+                                if cand_fk is not None and fk_orig is not None:
+                                    def _dist_to_band(x, lo, hi):
+                                        if x < lo:
+                                            return lo - x
+                                        elif x > hi:
+                                            return x - hi
+                                        else:
+                                            return 0.0
+                                    dist_orig = _dist_to_band(fk_orig, READABILITY_MIN, READABILITY_MAX)
+                                    dist_cand = _dist_to_band(cand_fk, READABILITY_MIN, READABILITY_MAX)
+                                    # require strict improvement toward the band
+                                    improvement_ok = (dist_cand + 1e-9) < dist_orig
+                            except Exception:
+                                improvement_ok = False
+
+                            # Gate to enable/disable improvement-based acceptance without changing argparse
+                            accept_improv = bool(getattr(args, 'accept_readability_improvement', True))
+
+                            if (fk_ok or (accept_improv and improvement_ok)) and length_ok and rouge_ok and label_ok:
                                 # Accept candidate
                                 rationale_text = cand_rationale
                                 # update fallback tracker
@@ -1587,6 +1608,11 @@ def run(args, external_llm=None):
                                         last_rationale_text = rationale_text
                                 except Exception:
                                     pass
+                                if getattr(args, 'print_debug', False) and (not fk_ok) and (accept_improv and improvement_ok):
+                                    try:
+                                        print(f"Accepting readability rewrite by improvement: fk_orig={fk_orig} -> cand_fk={cand_fk} (target {READABILITY_MIN}-{READABILITY_MAX})")
+                                    except Exception:
+                                        pass
                                 fk_final = cand_fk
                                 rouge1_final = cand_rouge1 if cand_rouge1 is not None else rouge1_orig
                                 rewrite_accepted = True
