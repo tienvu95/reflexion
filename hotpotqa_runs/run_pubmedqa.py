@@ -573,20 +573,18 @@ def run(args, external_llm=None):
     def _canon_label(val: str) -> str:
         return (val or '').strip().lower()
 
-    # Optional tqdm progress bar with ETA and accuracy postfix
+    # Optional tqdm progress bar
     use_progress = bool(getattr(args, 'progress', False))
-    bar = None
     if use_progress:
         try:
             from tqdm.auto import tqdm
-            target_total = len(ds) if limit is None else min(len(ds), limit)
-            bar = tqdm(total=target_total, desc='Running examples', dynamic_ncols=True)
+            iter_ds = enumerate(tqdm(ds, total=(len(ds) if limit is None else min(len(ds), limit)), desc='Running examples', ncols=100))
         except Exception:
-            bar = None
+            iter_ds = enumerate(ds)
+    else:
+        iter_ds = enumerate(ds)
 
-    i = -1
-    for ex in ds:
-        i += 1
+    for i, ex in iter_ds:
         if limit is not None and i >= limit:
             break
         total += 1
@@ -1191,18 +1189,10 @@ def run(args, external_llm=None):
             'rewrite_accepted': rewrite_accepted,
         })
 
-        # Update progress bar or periodic progress print
-        try:
-            acc = (correct / total) if total else 0.0
-            if bar is not None:
-                bar.update(1)
-                bar.set_postfix(acc=f"{acc:.3f}")
-            else:
-                if total % 10 == 0 or (limit is not None and total == limit) or (limit is None and total == len(ds)):
-                    pct = (total / (limit if limit is not None else len(ds))) * 100
-                    print(f"Progress: {total}/{limit if limit is not None else len(ds)} ({pct:.1f}%)  Acc={acc:.3f}")
-        except Exception:
-            pass
+        if total % 10 == 0 or total == target_total:
+            pct = (total / target_total) * 100 if target_total else 0.0
+            acc = correct / total if total else 0.0
+            print(f"Progress: {total}/{target_total} ({pct:.1f}%)  Acc={acc:.3f}")
 
         print('Final Answer:', pred)
         print('Rationale:', rationale_text if rationale_text else '(none)')
@@ -1217,11 +1207,6 @@ def run(args, external_llm=None):
             writer.writerow(r)
 
     print(f"Done. Processed={total}. Correct={correct}. Results saved to {out_path}")
-    try:
-        if bar is not None:
-            bar.close()
-    except Exception:
-        pass
 
     # Aggregate accuracy / F1 / classification metrics if sklearn is available
     try:
