@@ -247,8 +247,7 @@ def run(args, external_llm=None):
 
     # instantiate llm (or use a pre-initialized one when provided)
     # We expose two names: `llm_callable` (what agents should call) and
-    # `llm_raw` (the underlying model/tokenizer object when available) so
-    # we can compute log-probabilities / confidences when supported.
+    # `llm_raw` (the underlying model/tokenizer object when available).
     if external_llm is not None:
         # Wrap external LLM in a safe proxy object that is callable and
         # attempts to expose `.model` and `.tokenizer` attributes when available.
@@ -302,12 +301,8 @@ def run(args, external_llm=None):
         llm_callable = llm_raw
         print('LLM instantiated:', llm_raw)
 
-    if getattr(llm_raw, 'model', None) is None or getattr(llm_raw, 'tokenizer', None) is None:
-        print('Notice: LLM instance does not expose model/tokenizer attributes. Confidence scoring and Brier metrics will be unavailable.')
-
-    # Stub: disable transformer-based choice scoring to avoid raw logits
-    def _score_choices_via_transformers(raw_llm, prompt: str, choices):
-        return None
+    # If model/tokenizer are not exposed, advanced local features may be unavailable.
+    # This does not affect core agent execution.
 
     debug_enabled = getattr(args, 'print_debug', True)
 
@@ -551,7 +546,7 @@ def run(args, external_llm=None):
     correct = 0
     gold_labels: list[str] = []
     pred_labels: list[str] = []
-    prob_records = []
+    # No probability tracking kept for simplicity and speed
     rouge_records = []
     readability_scores = []
     fk_grades = []
@@ -598,10 +593,8 @@ def run(args, external_llm=None):
         # sanitize repeated training/exercise markers that may appear in dataset
         try:
             context = _sanitize_repeated_tokens(context)
-        except Exception as e_skip:
-            # When '__SKIP_CONFIDENCE_LOOP__' is raised above, we land here intentionally
-            if str(e_skip) != '__SKIP_CONFIDENCE_LOOP__':
-                pass
+        except Exception:
+            pass
         true_answer = extract_text(ex.get(a_field)) if a_field else ''
         gold_label = _canon_label(true_answer)
         long_answer_text = extract_text(ex.get(long_field)) if long_field else ''
@@ -803,14 +796,8 @@ def run(args, external_llm=None):
         except Exception:
             pass
 
-        # After the first run, optionally evaluate model confidence unless disabled.
+        # After the first run, proceed directly to canonicalization and logging.
         pred = getattr(agent, 'answer', '')
-        enforced_label = None
-        prob_dict_for_example = None
-        # Force-disable confidence/logit scoring to remove raw logits usage
-        confidence_disabled = True
-        if confidence_disabled and getattr(args, 'print_debug', False):
-            print('Confidence scoring disabled: skipping logits, enforcement, reflexion retries, and probability recording.')
         # Optional early exit: if initial prediction is already correct and user requested stop-on-correct
         try:
             if bool(getattr(args, 'stop_on_correct', False)):
@@ -820,7 +807,7 @@ def run(args, external_llm=None):
                     already_correct = (coerce_yes_no_maybe(pred, getattr(agent, 'scratchpad', '')).strip().lower() == true_answer.strip().lower())
                 if already_correct:
                     if getattr(args, 'print_debug', False):
-                        print('Initial prediction is CORRECT and --stop-on-correct is set; skipping confidence/reflexion loop.')
+                        print('Initial prediction is CORRECT and --stop-on-correct is set; proceeding without additional retries.')
                     # Add observation marker once
                     try:
                         s = getattr(agent, 'scratchpad', '') or ''
@@ -830,26 +817,12 @@ def run(args, external_llm=None):
                             agent.scratchpad = s
                     except Exception:
                         pass
-                    raise RuntimeError('__SKIP_CONFIDENCE_LOOP__')
         except Exception:
             pass
-        # Confidence/reflexion loop removed to avoid any logit/probability computation
-        # ensure we store a label-keyed prob dict for later Brier computation
-        # No confidence scoring: skip probability normalization
-        # Ensure label-keyed probabilities for Brier ('yes','no','maybe')
-        try:
-            if isinstance(prob_dict_for_example, dict):
-                p_map = {
-                    'yes': float(prob_dict_for_example.get('yes', prob_dict_for_example.get(' yes', 0.0))),
-                    'no': float(prob_dict_for_example.get('no', prob_dict_for_example.get(' no', 0.0))),
-                    'maybe': float(prob_dict_for_example.get('maybe', prob_dict_for_example.get(' maybe', 0.0))),
-                }
-                prob_dict_for_example = p_map
-        except Exception:
-            pass
+        # Skip any probability handling entirely.
         # Record probabilities only if scoring was performed
         # Skip probability recording entirely
-        # Final enforcement pass removed to avoid confidence/logit computation entirely
+        # No final enforcement pass.
         # Some agents may leave answer empty; try to extract Finish[...] from scratchpad
         if not pred:
             # look for Finish[...] pattern in scratchpad
@@ -894,36 +867,8 @@ def run(args, external_llm=None):
             rationale_text = ''
 
         pred = coerce_yes_no_maybe(pred, scratchpad)
-        # If we programmatically enforced a label earlier (argmax override),
-        # apply it *after* canonicalization to prevent the scratchpad from
-        # clobbering our enforced decision.
-        try:
-            if enforced_label is not None:
-                if getattr(args, 'print_logit_debug', False) or getattr(args, 'print_debug', False):
-                    print(f'Applying enforced_label override AFTER canonicalization: {enforced_label} (was {pred})')
-                pred = enforced_label
-                try:
-                    agent.answer = pred
-                except Exception:
-                    pass
-        except Exception:
-            pass
         try:
             agent.answer = pred
-        except Exception:
-            pass
-        # Last-resort: ensure any programmatic enforced_label survives into
-        # the saved output. This guards against agents re-appending old
-        # Finish[...] lines into their scratchpad after we canonicalize.
-        try:
-            if enforced_label is not None and pred != enforced_label:
-                # Always log final override so it's visible in non-debug runs
-                print(f'Final override before save: setting pred from "{pred}" to enforced_label "{enforced_label}"')
-                pred = enforced_label
-                try:
-                    agent.answer = pred
-                except Exception:
-                    pass
         except Exception:
             pass
 
@@ -953,76 +898,8 @@ def run(args, external_llm=None):
             except Exception:
                 pass
         else:
-            # Optional flip-on-incorrect: choose alternative among remaining two using logits
-            try:
-                if False and bool(getattr(args, 'flip_on_incorrect', False)):
-                    # Score the three choices on final prompt, pick best among the two not equal to current pred
-                    final_scoring_prompt = None
-                    try:
-                        if hasattr(agent, '_build_agent_prompt'):
-                            final_scoring_prompt = agent._build_agent_prompt() + "\nAnswer:"
-                    except Exception:
-                        final_scoring_prompt = None
-                    confs = None
-                    if final_scoring_prompt is not None:
-                        try:
-                            if hasattr(llm_raw, 'predict_label_probs'):
-                                label_probs = llm_raw.predict_label_probs(final_scoring_prompt, labels=['yes','no','maybe'])
-                                confs = {k: float(v) for k, v in label_probs.items()}
-                            else:
-                                token_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes',' no',' maybe'])
-                                if token_confs:
-                                    confs = {'yes': token_confs.get(' yes', 0.0), 'no': token_confs.get(' no', 0.0), 'maybe': token_confs.get(' maybe', 0.0)}
-                        except Exception:
-                            pass
-                    if confs:
-                        # pick alternative with max prob among the two not equal to pred
-                        alts = [lbl for lbl in ('yes','no','maybe') if lbl != pred]
-                        alt = max(alts, key=lambda k: confs.get(k, 0.0))
-                        if getattr(args, 'print_debug', False):
-                            print(f'Flip-on-incorrect: switching from {pred} to {alt} (probs={confs})')
-                        pred = alt
-                        try:
-                            agent.answer = pred
-                        except Exception:
-                            pass
-                        # Generate a matching single-sentence rationale for the flipped label
-                        try:
-                            flip_prompt = (final_scoring_prompt or '') + "\n" + f"Provide one concise sentence justifying Finish[{pred}] based on the provided context and any retrieved observations. Do not include the word 'Reason:'."
-                            raw_reason = llm_callable(flip_prompt)
-                            reason_line = _pick_reason_line(raw_reason)
-                            if reason_line:
-                                rationale_text = reason_line
-                                # update fallback tracker
-                                try:
-                                    if rationale_text and len(rationale_text.strip().strip('`.')) >= 3:
-                                        last_rationale_text = rationale_text
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                        # Update scratchpad to reflect the flip (remove old Finish/Reason lines, append new)
-                        try:
-                            s = getattr(agent, 'scratchpad', '') or ''
-                            import re
-                            s = re.sub(r'(?im)^.*Finish\[.*?\].*$\n?', '', s)
-                            s = re.sub(r'(?im)^.*Action:.*Finish\[.*?\].*$\n?', '', s)
-                            s = '\n'.join([ln for ln in s.splitlines() if not ln.strip().lower().startswith('reason:')])
-                            s = _sanitize_repeated_tokens(s)
-                            s = (s + f"\nFinish[{pred}]\n{rationale_text if rationale_text else pred + '.'}").strip()
-                            agent.scratchpad = s
-                        except Exception:
-                            pass
-                        # recompute correctness after flip
-                        try:
-                            if EM(pred, true_answer):
-                                correct += 1
-                        except Exception:
-                            if (pred.strip().lower() == true_answer.strip().lower()):
-                                correct += 1
-            except Exception as e_flip:
-                if getattr(args, 'print_debug', False):
-                    print('Flip-on-incorrect failed:', type(e_flip).__name__, e_flip)
+            # No flipping; preserve original prediction.
+            pass
 
         # Compute original per-example ROUGE-1 F1 for acceptance checks
         orig_rouge1 = None
@@ -1344,8 +1221,7 @@ def run(args, external_llm=None):
     except ImportError:
         print('sklearn not installed; skipping accuracy/F1 metrics.')
 
-    # Remove Brier computation entirely to avoid logits/prob usage
-    print('Brier score skipped (confidence/logit scoring removed).')
+    # Brier score computation removed.
 
     if rouge_records:
         r1 = sum(s['rouge1'].fmeasure for s in rouge_records) / len(rouge_records)
@@ -1403,15 +1279,10 @@ if __name__ == '__main__':
     p.add_argument('--use-unsloth', action='store_true', help='Use UnsloTh prequantized models (Colab-friendly)')
     p.add_argument('--max-seq-length', type=int, default=8192, help='Max sequence length / context window for UnsloTh or long-context models')
     p.add_argument('--force-finish-format', action='store_true', help='Ask agents to output exactly one Finish[...] action with yes/no/maybe when finishing')
-    p.add_argument('--confidence-threshold', type=float, default=0.6, help='Confidence threshold (0..1) to accept yes/no/maybe without further reflexion')
-    p.add_argument('--max-reflect-attempts', type=int, default=2, help='Maximum number of reflexion+retry attempts when confidence is low')
     p.add_argument('--stop-on-correct', action='store_true', help='If the initial agent prediction matches the gold label, stop immediately and avoid any further reflexion or enforcement')
     p.add_argument('--print-debug', dest='print_debug', action='store_true', help='Print verbose debug info (default)')
     p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
-    p.add_argument('--print-logit-debug', action='store_true', help='Print yes/no/maybe probability scores when evaluating confidence')
-    p.add_argument('--force-argmax-final', action='store_true', help='Force final predicted label to the transformers argmax when final scoring is available')
-    p.add_argument('--disable-confidence-enforcement', action='store_true', help='Disable all confidence-based label enforcement (attempt-level and final-pass)')
-    p.set_defaults(print_debug=True, print_logit_debug=False)
+    p.set_defaults(print_debug=True)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
     p.add_argument('--readability-min', type=float, default=6.0, help='Minimum Flesch-Kincaid grade to consider explanation acceptable')
     p.add_argument('--readability-max', type=float, default=8.0, help='Maximum Flesch-Kincaid grade to consider explanation acceptable')
@@ -1421,8 +1292,7 @@ if __name__ == '__main__':
     p.add_argument('--length-tolerance', type=float, default=0.2, help='Relative tolerance for answer length when --enforce-length is set (e.g., 0.2 = +/-20%)')
     p.add_argument('--max-readability-rewrites', type=int, default=1, help='Maximum attempts to rewrite rationale for readability acceptance')
     p.add_argument('--rouge-drop-threshold', type=float, default=0.05, help='Maximum allowed drop in ROUGE-1 F1 when accepting rewritten rationale')
-    p.add_argument('--flip-on-incorrect', action='store_true', help='If the predicted label is incorrect, flip to an alternative (of the remaining two) using logits confidence and produce a matching rationale')
-    p.add_argument('--disable-confidence-scoring', action='store_true', help='Skip all logit/probability scoring, confidence enforcement, reflexion retries based on confidence, and Brier computation for speed')
+    
     p.add_argument('--progress', action='store_true', help='Show a tqdm progress bar for the example loop')
     args = p.parse_args()
 

@@ -54,7 +54,7 @@ def make_args(model_id=None, load_in_4bit=False, device=None):
         # Agent controls
         max_steps=6,
         print_debug=True,
-        print_logit_debug=True,  # enable to see yes/no/maybe probs for Brier
+        print_logit_debug=False,  # disable confidence/logit debug prints
         keep_fewshot_examples=True,
 
         # Local transformers options
@@ -67,6 +67,8 @@ def make_args(model_id=None, load_in_4bit=False, device=None):
         max_reflect_attempts=3,
         force_finish_format=False,
         force_argmax_final=False,
+        disable_confidence_enforcement=True,
+        disable_confidence_scoring=True,
 
         # Readability / rewrite / enforcement controls
         readability_min=6.0,           # Flesch-Kincaid lower bound (grade)
