@@ -224,6 +224,28 @@ def run(args, external_llm=None):
         print('Empty split. Exiting.')
         return
 
+    # Optional: subset by start/end indices (0-based, end exclusive)
+    try:
+        start_idx = getattr(args, 'start', None)
+        end_idx = getattr(args, 'end', None)
+        if start_idx is not None or end_idx is not None:
+            n = len(ds)
+            si = 0 if start_idx is None else max(0, int(start_idx))
+            ei = n if end_idx is None else int(end_idx)
+            if ei is None or ei > n:
+                ei = n
+            if si >= n:
+                print(f'Requested start index {si} is >= dataset size {n}. Nothing to run.')
+                return
+            if ei <= si:
+                print(f'Invalid range: start={si}, end={ei}. Nothing to run.')
+                return
+            ds = ds.select(range(si, ei))
+            print(f'Subselected dataset to indices [{si}:{ei}) -> {len(ds)} example(s).')
+    except Exception as e:
+        print('Failed to apply start/end subsetting:', type(e).__name__, e)
+        return
+
     sample = ds[0]
     q_field = getattr(args, 'question_field', 'question')
     c_field = getattr(args, 'context_field', 'context')
@@ -573,16 +595,8 @@ def run(args, external_llm=None):
     def _canon_label(val: str) -> str:
         return (val or '').strip().lower()
 
-    # Optional tqdm progress bar
-    use_progress = bool(getattr(args, 'progress', False))
-    if use_progress:
-        try:
-            from tqdm.auto import tqdm
-            iter_ds = enumerate(tqdm(ds, total=(len(ds) if limit is None else min(len(ds), limit)), desc='Running examples', ncols=100))
-        except Exception:
-            iter_ds = enumerate(ds)
-    else:
-        iter_ds = enumerate(ds)
+    # Plain iterator over dataset (no tqdm)
+    iter_ds = enumerate(ds)
 
     for i, ex in iter_ds:
         if limit is not None and i >= limit:
@@ -1292,8 +1306,9 @@ if __name__ == '__main__':
     p.add_argument('--length-tolerance', type=float, default=0.2, help='Relative tolerance for answer length when --enforce-length is set (e.g., 0.2 = +/-20%)')
     p.add_argument('--max-readability-rewrites', type=int, default=1, help='Maximum attempts to rewrite rationale for readability acceptance')
     p.add_argument('--rouge-drop-threshold', type=float, default=0.05, help='Maximum allowed drop in ROUGE-1 F1 when accepting rewritten rationale')
-    
-    p.add_argument('--progress', action='store_true', help='Show a tqdm progress bar for the example loop')
+    # Subsetting controls
+    p.add_argument('--start', type=int, default=None, help='0-based start index (inclusive) for subsetting the split')
+    p.add_argument('--end', type=int, default=None, help='0-based end index (exclusive) for subsetting the split')
     args = p.parse_args()
 
     # normalize limit
