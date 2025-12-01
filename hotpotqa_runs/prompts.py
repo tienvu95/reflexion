@@ -6,7 +6,8 @@ except Exception:
     except Exception:
         from prompt_shim import PromptTemplate
 
-COT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+COT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
 - Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
@@ -19,7 +20,8 @@ Here are some examples:
 Relevant PubMed Context: {context} 
 Question: {question}{scratchpad}"""
 
-COT_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+COT_AGENT_REFLECT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
 - Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
@@ -33,7 +35,8 @@ Here are some examples:
 
 Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
-COT_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure.
+COT_REFLECT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you read PubMed context and answered a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the PubMed evidence that mitigates the same failure.
 
 If your reflection identifies a corrected label, you MUST include an explicit recommendation line in one of the following exact forms (choose one):
 - `Finish[yes]` or `Finish[no]` or `Finish[maybe]`
@@ -83,7 +86,8 @@ cot_reflect_prompt = PromptTemplate(
                         template = COT_REFLECT_INSTRUCTION,
                         )
 
-COT_SIMPLE_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+COT_SIMPLE_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
 - Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
@@ -96,7 +100,8 @@ Here are some examples:
 Relevant PubMed Context: {context}
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
+COT_SIMPLE_AGENT_REFLECT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question by reasoning with `Thought:` steps then producing a single `Finish[...]` action and a separate `Reason:` line.
 IMPORTANT OUTPUT FORMAT (must follow exactly):
 - End your reasoning with one line containing exactly `Finish[<label>]` where `<label>` is one of `yes`, `no`, or `maybe`.
 - Immediately on the next line, output `Reason: <brief justification>` citing the supporting evidence from the context. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
@@ -110,7 +115,8 @@ Relevant PubMed Context: {context}
 
 Question: {question}{scratchpad}"""
 
-COT_SIMPLE_REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial with a biomedical abstract and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose the failure and propose a concise plan that explains how to better use the PubMed context to arrive at the correct yes/no/maybe answer, including when to present the `Reason:` justification.
+COT_SIMPLE_REFLECT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial with a biomedical abstract and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or phrased the answer incorrectly. In a few sentences, diagnose the failure and propose a concise plan that explains how to better use the PubMed context to arrive at the correct yes/no/maybe answer, including when to present the `Reason:` justification.
 
 Any `Reason:` you produce or recommend must be a single plain-language sentence at a 6th–8th grade reading level and less than 50 words.
 Here are some examples:
@@ -138,7 +144,8 @@ cot_simple_reflect_prompt = PromptTemplate(
                         )
 
 
-REACT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
+REACT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
 (1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
 (3) Finish[answer], which returns the answer and finishes the task.
@@ -156,7 +163,8 @@ Here are some examples:
 Question: {question}{scratchpad}"""
 
 # Stronger instruction variant that enforces Action formatting strictly
-REACT_INSTRUCTION_STRICT = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
+REACT_INSTRUCTION_STRICT = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types:
 (1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
 (3) Finish[answer], which returns the answer and finishes the task.
@@ -176,7 +184,8 @@ Here are some examples:
 
 Question: {question}{scratchpad}"""
 
-REACT_REFLECT_INSTRUCTION = """Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
+REACT_REFLECT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+Answer a PubMedQA biomedical question with interleaving Thought, Action, Observation steps. Thought can reason about the current situation, and Action can be three types: 
 (1) Search[entity], which searches the provided biomedical docstore (PubMed context or Wikipedia fallback) and returns the first matching passage.
 (2) Lookup[keyword], which returns the next sentence containing keyword in the last passage successfully found by Search.
 (3) Finish[answer], which returns the answer and finishes the task and must be followed by a `Reason:` line grounded in the retrieved evidence.
@@ -196,7 +205,8 @@ REFLECTION_AFTER_LAST_TRIAL_HEADER = 'The following reflection(s) give a plan to
 
 LAST_TRIAL_HEADER = 'You have attempted to answer the following question before and failed. Below is the last trial you attempted to answer the question.\n'
 
-REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you had access to a biomedical docstore (PubMed context or Wikipedia fallback) and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or exhausted your reasoning steps. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the biomedical evidence that mitigates the same failure. Use complete sentences.
+REFLECT_INSTRUCTION = """You are a careful, literacy-aware medical assistant. Always write at about a 6th–8th grade reading level: short sentences, simple words, and clear structure.
+You are an advanced reasoning agent that can improve based on self reflection. You will be given a previous PubMedQA reasoning trial in which you had access to a biomedical docstore (PubMed context or Wikipedia fallback) and a yes/no/maybe question. You were unsuccessful either because you produced the wrong label with Finish[<answer>] or exhausted your reasoning steps. In a few sentences, diagnose a possible reason for failure and devise a new, concise, high level plan grounded in the biomedical evidence that mitigates the same failure. Use complete sentences.
 If your reflection yields a corrected answer recommendation, you MUST include an explicit recommendation line using one of the exact forms: `Finish[yes]`, `Finish[no]`, `Finish[maybe]` or `Recommendation: Finish[yes|no|maybe]`. If you include such a recommendation, also add a one-line `Reason:` justification for the recommended label. Reason line must be a single plain sentence at a 6th–8th grade reading level and less than 50 words.
 
 Here are some examples:
