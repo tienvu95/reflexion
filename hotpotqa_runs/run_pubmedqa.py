@@ -138,14 +138,23 @@ def build_llm(args):
                 self.tokenizer = tokenizer
 
             def __call__(self, prompt: str) -> str:
+                import torch
                 inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True)
                 # move inputs to model device if possible
                 try:
                     device = next(self.model.parameters()).device
                     inputs = {k: v.to(device) for k, v in inputs.items()}
                 except Exception:
-                    pass
-                gen = self.model.generate(**inputs, max_new_tokens=256, do_sample=False)
+                    device = torch.device('cpu')
+                # Use inference_mode and autocast on CUDA for speed
+                use_autocast = True
+                dtype = torch.float16
+                with torch.inference_mode():
+                    if use_autocast and device.type == 'cuda':
+                        with torch.cuda.amp.autocast(dtype=dtype):
+                            gen = self.model.generate(**inputs, max_new_tokens=256, do_sample=False)
+                    else:
+                        gen = self.model.generate(**inputs, max_new_tokens=256, do_sample=False)
                 out = self.tokenizer.decode(gen[0], skip_special_tokens=True)
                 # remove prompt prefix if returned
                 if out.startswith(prompt):
@@ -186,6 +195,16 @@ def run(args, external_llm=None):
         from datasets import load_dataset
     except Exception as e:
         raise RuntimeError("The 'datasets' library is required to load HF datasets. Install it with `pip install datasets`.") from e
+
+    # Enable CUDA performance knobs globally when available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            torch.set_float32_matmul_precision('high')
+    except Exception:
+        pass
 
     # If the dataset requires a config (name), pass it through. Example: PubMedQA requires one of
     # ['pqa_artificial', 'pqa_labeled', 'pqa_unlabeled'] as the config name.
@@ -303,41 +322,44 @@ def run(args, external_llm=None):
         device = next(model.parameters()).device
         max_len = getattr(args, 'max_seq_length', 8192)
 
-        def _logprob_via_generate(choice: str):
-            choice_ids = tokenizer(choice, add_special_tokens=False, return_tensors='pt')['input_ids'][0].to(device)
-            inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            target_len = choice_ids.shape[0]
-            with torch.no_grad():
-                out = model.generate(
-                    **inputs,
-                    max_new_tokens=target_len,
-                    do_sample=False,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    use_cache=True,
-                )
-            scores = out.scores  # list length target_len
-            log_lik = 0.0
-            for idx, tok_id in enumerate(choice_ids):
-                logits = scores[idx][0]
-                logp = F.log_softmax(logits, dim=-1)[tok_id].item()
-                log_lik += logp
-            return log_lik
+        # Single forward pass: score next-token distribution, GPU-optimized
+        try:
+            enc = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)
+        except Exception:
+            enc = tokenizer.__call__(prompt, return_tensors='pt', truncation=True, max_length=max_len)
+        enc = {k: v.to(device) for k, v in enc.items()}
+
+        # Enable fast inference mode and autocast on CUDA
+        use_autocast = bool(getattr(args, 'cuda_autocast', True))
+        dtype_pref = str(getattr(args, 'cuda_autocast_dtype', 'bf16')).lower()
+        autocast_dtype = torch.bfloat16 if dtype_pref in ('bf16','bfloat16') else torch.float16
+        with torch.inference_mode():
+            if use_autocast and device.type == 'cuda':
+                with torch.cuda.amp.autocast(dtype=autocast_dtype):
+                    out = model(**enc)
+            else:
+                out = model(**enc)
+        logits = out.logits  # [B, T, V]
+        last_logits = logits[:, -1, :].squeeze(0)  # [V]
+        last_logprobs = F.log_softmax(last_logits, dim=-1)
+
+        # Score each choice using first-token logprob (approximation for multi-token)
+        def _first_token_id(text: str):
+            ids = tokenizer(text, add_special_tokens=False)['input_ids']
+            return ids[0] if ids else None
 
         logls = []
-        for choice in choices:
-            logprob = None
-            try:
-                logprob = _logprob_via_generate(choice)
-            except Exception as e_gen:
-                if getattr(args, 'print_logit_debug', False):
-                    print('Generate logprob failed:', type(e_gen).__name__, e_gen)
-                return None
-            logls.append(logprob)
-        m = max(logls)
+        for ch in choices:
+            tid = _first_token_id(ch)
+            if tid is None or tid >= last_logprobs.shape[-1]:
+                logls.append(float('-inf'))
+            else:
+                logls.append(last_logprobs[tid].item())
+
+        # Normalize to probabilities
+        m = max(logls) if logls else 0.0
         exps = [math.exp(l - m) for l in logls]
-        s = sum(exps)
+        s = sum(exps) if exps else 1.0
         probs = [e / s for e in exps]
         return dict(zip(choices, probs))
 
@@ -610,7 +632,18 @@ def run(args, external_llm=None):
     def _canon_label(val: str) -> str:
         return (val or '').strip().lower()
 
-    for i, ex in enumerate(ds):
+    # Optional tqdm progress bar
+    use_progress = bool(getattr(args, 'progress', False))
+    if use_progress:
+        try:
+            from tqdm.auto import tqdm
+            iter_ds = enumerate(tqdm(ds, total=(len(ds) if limit is None else min(len(ds), limit)), desc='Running examples', ncols=100))
+        except Exception:
+            iter_ds = enumerate(ds)
+    else:
+        iter_ds = enumerate(ds)
+
+    for i, ex in iter_ds:
         if limit is not None and i >= limit:
             break
         total += 1
@@ -1844,6 +1877,7 @@ if __name__ == '__main__':
     p.add_argument('--max-readability-rewrites', type=int, default=1, help='Maximum attempts to rewrite rationale for readability acceptance')
     p.add_argument('--rouge-drop-threshold', type=float, default=0.05, help='Maximum allowed drop in ROUGE-1 F1 when accepting rewritten rationale')
     p.add_argument('--flip-on-incorrect', action='store_true', help='If the predicted label is incorrect, flip to an alternative (of the remaining two) using logits confidence and produce a matching rationale')
+    p.add_argument('--progress', action='store_true', help='Show a tqdm progress bar for the example loop')
     args = p.parse_args()
 
     # normalize limit
