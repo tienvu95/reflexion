@@ -305,63 +305,9 @@ def run(args, external_llm=None):
     if getattr(llm_raw, 'model', None) is None or getattr(llm_raw, 'tokenizer', None) is None:
         print('Notice: LLM instance does not expose model/tokenizer attributes. Confidence scoring and Brier metrics will be unavailable.')
 
-    # Helper: compute relative probabilities for the discrete choices using
-    # an underlying transformers-style model+tokenizer when available. Returns
-    # a dict mapping choice->prob or None when scoring is not supported.
+    # Stub: disable transformer-based choice scoring to avoid raw logits
     def _score_choices_via_transformers(raw_llm, prompt: str, choices):
-        model = getattr(raw_llm, 'model', None)
-        tokenizer = getattr(raw_llm, 'tokenizer', None)
-        if model is None or tokenizer is None:
-            if getattr(args, 'print_logit_debug', False):
-                print('Logit scoring skipped: LLM missing model/tokenizer attrs.')
-            return None
-        import math
-        import torch
-        import torch.nn.functional as F
-
-        device = next(model.parameters()).device
-        max_len = getattr(args, 'max_seq_length', 8192)
-
-        # Single forward pass: score next-token distribution, GPU-optimized
-        try:
-            enc = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=max_len)
-        except Exception:
-            enc = tokenizer.__call__(prompt, return_tensors='pt', truncation=True, max_length=max_len)
-        enc = {k: v.to(device) for k, v in enc.items()}
-
-        # Enable fast inference mode and autocast on CUDA
-        use_autocast = bool(getattr(args, 'cuda_autocast', True))
-        dtype_pref = str(getattr(args, 'cuda_autocast_dtype', 'bf16')).lower()
-        autocast_dtype = torch.bfloat16 if dtype_pref in ('bf16','bfloat16') else torch.float16
-        with torch.inference_mode():
-            if use_autocast and device.type == 'cuda':
-                with torch.cuda.amp.autocast(dtype=autocast_dtype):
-                    out = model(**enc)
-            else:
-                out = model(**enc)
-        logits = out.logits  # [B, T, V]
-        last_logits = logits[:, -1, :].squeeze(0)  # [V]
-        last_logprobs = F.log_softmax(last_logits, dim=-1)
-
-        # Score each choice using first-token logprob (approximation for multi-token)
-        def _first_token_id(text: str):
-            ids = tokenizer(text, add_special_tokens=False)['input_ids']
-            return ids[0] if ids else None
-
-        logls = []
-        for ch in choices:
-            tid = _first_token_id(ch)
-            if tid is None or tid >= last_logprobs.shape[-1]:
-                logls.append(float('-inf'))
-            else:
-                logls.append(last_logprobs[tid].item())
-
-        # Normalize to probabilities
-        m = max(logls) if logls else 0.0
-        exps = [math.exp(l - m) for l in logls]
-        s = sum(exps) if exps else 1.0
-        probs = [e / s for e in exps]
-        return dict(zip(choices, probs))
+        return None
 
     debug_enabled = getattr(args, 'print_debug', True)
 
@@ -861,7 +807,8 @@ def run(args, external_llm=None):
         pred = getattr(agent, 'answer', '')
         enforced_label = None
         prob_dict_for_example = None
-        confidence_disabled = bool(getattr(args, 'disable_confidence_scoring', False))
+        # Force-disable confidence/logit scoring to remove raw logits usage
+        confidence_disabled = True
         if confidence_disabled and getattr(args, 'print_debug', False):
             print('Confidence scoring disabled: skipping logits, enforcement, reflexion retries, and probability recording.')
         # Optional early exit: if initial prediction is already correct and user requested stop-on-correct
@@ -886,7 +833,7 @@ def run(args, external_llm=None):
                     raise RuntimeError('__SKIP_CONFIDENCE_LOOP__')
         except Exception:
             pass
-        if not confidence_disabled:
+        if False:
             max_attempts = getattr(args, 'max_reflect_attempts', 2)
             attempts = 0
             # track last reflection text to avoid repeated no-op reflections
@@ -1131,12 +1078,7 @@ def run(args, external_llm=None):
                 prev_conf = cur_conf
                 attempts += 1
         # ensure we store a label-keyed prob dict for later Brier computation
-        try:
-            if prob_dict_for_example is None and isinstance(confs, dict):
-                # if confs contains token keys like ' yes', normalize to label keys
-                prob_dict_for_example = {k.strip(): float(v) for k, v in confs.items()}
-        except Exception:
-            pass
+        # No confidence scoring: skip probability normalization
         # Ensure label-keyed probabilities for Brier ('yes','no','maybe')
         try:
             if isinstance(prob_dict_for_example, dict):
@@ -1149,8 +1091,7 @@ def run(args, external_llm=None):
         except Exception:
             pass
         # Record probabilities only if scoring was performed
-        if not confidence_disabled:
-            prob_records.append((prob_dict_for_example, gold_label))
+        # Skip probability recording entirely
         # Debug: show the probabilities recorded for Brier computation
         try:
             if getattr(args, 'print_debug', False):
@@ -1179,7 +1120,7 @@ def run(args, external_llm=None):
             except Exception:
                 final_scoring_prompt = None
             final_confs = None
-            if (not confidence_disabled) and final_scoring_prompt is not None:
+            if False and final_scoring_prompt is not None:
                 try:
                     if hasattr(llm_raw, 'predict_label_probs'):
                         label_probs = llm_raw.predict_label_probs(final_scoring_prompt, labels=['yes','no','maybe'])
@@ -1190,7 +1131,7 @@ def run(args, external_llm=None):
                         final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
                 except Exception:
                     final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
-            if (not confidence_disabled) and final_confs is not None:
+            if False and final_confs is not None:
                 # update prob record to final scoring (label-keyed)
                 try:
                     p_map_final = {
@@ -1392,7 +1333,7 @@ def run(args, external_llm=None):
         else:
             # Optional flip-on-incorrect: choose alternative among remaining two using logits
             try:
-                if bool(getattr(args, 'flip_on_incorrect', False)):
+                if False and bool(getattr(args, 'flip_on_incorrect', False)):
                     # Score the three choices on final prompt, pick best among the two not equal to current pred
                     final_scoring_prompt = None
                     try:
@@ -1781,29 +1722,8 @@ def run(args, external_llm=None):
     except ImportError:
         print('sklearn not installed; skipping accuracy/F1 metrics.')
 
-    # Compute mean Brier score unless confidence scoring disabled
-    if getattr(args, 'disable_confidence_scoring', False):
-        print('Brier score skipped (confidence scoring disabled).')
-    else:
-        valid_probs = [(prob, gold) for prob, gold in prob_records if prob is not None]
-        if valid_probs:
-            def _brier(prob_dict, gold):
-                # Normalize and accept both token-keyed and label-keyed dicts
-                p_yes = float(prob_dict.get('yes', prob_dict.get(' yes', 0.0)))
-                p_no = float(prob_dict.get('no', prob_dict.get(' no', 0.0)))
-                p_maybe = float(prob_dict.get('maybe', prob_dict.get(' maybe', 0.0)))
-                s = p_yes + p_no + p_maybe
-                if s > 0:
-                    p_yes, p_no, p_maybe = (p_yes/s, p_no/s, p_maybe/s)
-                y_yes = 1.0 if gold == 'yes' else 0.0
-                y_no = 1.0 if gold == 'no' else 0.0
-                y_maybe = 1.0 if gold == 'maybe' else 0.0
-                return (p_yes - y_yes)**2 + (p_no - y_no)**2 + (p_maybe - y_maybe)**2
-
-            mean_brier = sum(_brier(prob, gold) for prob, gold in valid_probs) / len(valid_probs)
-            print(f'Mean Brier (0-2 scale over {len(valid_probs)} examples): {mean_brier:.6f}')
-        else:
-            print('No probability data available to compute Brier score (model/tokenizer pair missing).')
+    # Remove Brier computation entirely to avoid logits/prob usage
+    print('Brier score skipped (confidence/logit scoring removed).')
 
     if rouge_records:
         r1 = sum(s['rouge1'].fmeasure for s in rouge_records) / len(rouge_records)
