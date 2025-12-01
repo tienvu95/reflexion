@@ -857,13 +857,13 @@ def run(args, external_llm=None):
         except Exception:
             pass
 
-        # After the first run, try to evaluate the model's confidence on the
-        # discrete choices (yes/no/maybe) using logits when the underlying
-        # transformers model+tokenizer is available. If confidence is low,
-        # attempt reflexion (if supported) and rerun to improve confidence.
+        # After the first run, optionally evaluate model confidence unless disabled.
         pred = getattr(agent, 'answer', '')
         enforced_label = None
         prob_dict_for_example = None
+        confidence_disabled = bool(getattr(args, 'disable_confidence_scoring', False))
+        if confidence_disabled and getattr(args, 'print_debug', False):
+            print('Confidence scoring disabled: skipping logits, enforcement, reflexion retries, and probability recording.')
         # Optional early exit: if initial prediction is already correct and user requested stop-on-correct
         try:
             if bool(getattr(args, 'stop_on_correct', False)):
@@ -886,7 +886,7 @@ def run(args, external_llm=None):
                     raise RuntimeError('__SKIP_CONFIDENCE_LOOP__')
         except Exception:
             pass
-        try:
+        if not confidence_disabled:
             max_attempts = getattr(args, 'max_reflect_attempts', 2)
             attempts = 0
             # track last reflection text to avoid repeated no-op reflections
@@ -1130,8 +1130,6 @@ def run(args, external_llm=None):
 
                 prev_conf = cur_conf
                 attempts += 1
-        except Exception:
-            pass
         # ensure we store a label-keyed prob dict for later Brier computation
         try:
             if prob_dict_for_example is None and isinstance(confs, dict):
@@ -1150,7 +1148,9 @@ def run(args, external_llm=None):
                 prob_dict_for_example = p_map
         except Exception:
             pass
-        prob_records.append((prob_dict_for_example, gold_label))
+        # Record probabilities only if scoring was performed
+        if not confidence_disabled:
+            prob_records.append((prob_dict_for_example, gold_label))
         # Debug: show the probabilities recorded for Brier computation
         try:
             if getattr(args, 'print_debug', False):
@@ -1179,7 +1179,7 @@ def run(args, external_llm=None):
             except Exception:
                 final_scoring_prompt = None
             final_confs = None
-            if final_scoring_prompt is not None:
+            if (not confidence_disabled) and final_scoring_prompt is not None:
                 try:
                     if hasattr(llm_raw, 'predict_label_probs'):
                         label_probs = llm_raw.predict_label_probs(final_scoring_prompt, labels=['yes','no','maybe'])
@@ -1190,7 +1190,7 @@ def run(args, external_llm=None):
                         final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
                 except Exception:
                     final_confs = _score_choices_via_transformers(llm_raw, final_scoring_prompt, [' yes', ' no', ' maybe'])
-            if final_confs is not None:
+            if (not confidence_disabled) and final_confs is not None:
                 # update prob record to final scoring (label-keyed)
                 try:
                     p_map_final = {
@@ -1781,26 +1781,29 @@ def run(args, external_llm=None):
     except ImportError:
         print('sklearn not installed; skipping accuracy/F1 metrics.')
 
-    # Compute mean Brier score when probability records are available
-    valid_probs = [(prob, gold) for prob, gold in prob_records if prob is not None]
-    if valid_probs:
-        def _brier(prob_dict, gold):
-            # Normalize and accept both token-keyed and label-keyed dicts
-            p_yes = float(prob_dict.get('yes', prob_dict.get(' yes', 0.0)))
-            p_no = float(prob_dict.get('no', prob_dict.get(' no', 0.0)))
-            p_maybe = float(prob_dict.get('maybe', prob_dict.get(' maybe', 0.0)))
-            s = p_yes + p_no + p_maybe
-            if s > 0:
-                p_yes, p_no, p_maybe = (p_yes/s, p_no/s, p_maybe/s)
-            y_yes = 1.0 if gold == 'yes' else 0.0
-            y_no = 1.0 if gold == 'no' else 0.0
-            y_maybe = 1.0 if gold == 'maybe' else 0.0
-            return (p_yes - y_yes)**2 + (p_no - y_no)**2 + (p_maybe - y_maybe)**2
-
-        mean_brier = sum(_brier(prob, gold) for prob, gold in valid_probs) / len(valid_probs)
-        print(f'Mean Brier (0-2 scale over {len(valid_probs)} examples): {mean_brier:.6f}')
+    # Compute mean Brier score unless confidence scoring disabled
+    if getattr(args, 'disable_confidence_scoring', False):
+        print('Brier score skipped (confidence scoring disabled).')
     else:
-        print('No probability data available to compute Brier score (model/tokenizer pair missing).')
+        valid_probs = [(prob, gold) for prob, gold in prob_records if prob is not None]
+        if valid_probs:
+            def _brier(prob_dict, gold):
+                # Normalize and accept both token-keyed and label-keyed dicts
+                p_yes = float(prob_dict.get('yes', prob_dict.get(' yes', 0.0)))
+                p_no = float(prob_dict.get('no', prob_dict.get(' no', 0.0)))
+                p_maybe = float(prob_dict.get('maybe', prob_dict.get(' maybe', 0.0)))
+                s = p_yes + p_no + p_maybe
+                if s > 0:
+                    p_yes, p_no, p_maybe = (p_yes/s, p_no/s, p_maybe/s)
+                y_yes = 1.0 if gold == 'yes' else 0.0
+                y_no = 1.0 if gold == 'no' else 0.0
+                y_maybe = 1.0 if gold == 'maybe' else 0.0
+                return (p_yes - y_yes)**2 + (p_no - y_no)**2 + (p_maybe - y_maybe)**2
+
+            mean_brier = sum(_brier(prob, gold) for prob, gold in valid_probs) / len(valid_probs)
+            print(f'Mean Brier (0-2 scale over {len(valid_probs)} examples): {mean_brier:.6f}')
+        else:
+            print('No probability data available to compute Brier score (model/tokenizer pair missing).')
 
     if rouge_records:
         r1 = sum(s['rouge1'].fmeasure for s in rouge_records) / len(rouge_records)
@@ -1877,6 +1880,7 @@ if __name__ == '__main__':
     p.add_argument('--max-readability-rewrites', type=int, default=1, help='Maximum attempts to rewrite rationale for readability acceptance')
     p.add_argument('--rouge-drop-threshold', type=float, default=0.05, help='Maximum allowed drop in ROUGE-1 F1 when accepting rewritten rationale')
     p.add_argument('--flip-on-incorrect', action='store_true', help='If the predicted label is incorrect, flip to an alternative (of the remaining two) using logits confidence and produce a matching rationale')
+    p.add_argument('--disable-confidence-scoring', action='store_true', help='Skip all logit/probability scoring, confidence enforcement, reflexion retries based on confidence, and Brier computation for speed')
     p.add_argument('--progress', action='store_true', help='Show a tqdm progress bar for the example loop')
     args = p.parse_args()
 
