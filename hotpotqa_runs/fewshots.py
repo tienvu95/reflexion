@@ -1,53 +1,60 @@
 WEBTHINK_SIMPLE6 = """Question: Are group 2 innate lymphoid cells increased in chronic rhinosinusitis with nasal polyps or eosinophilia?
-Thought 1: I should search for the biopsy study that measured ILC2 frequencies in CRS.
+Thought 1: I will look for a study that counted ILC2 cells in these patients.
 Action 1: Search[sinus mucosa ILC2 frequency nasal polyps]
 Observation 1: The abstract describes 35 CRS patients and reports that ILC2 frequencies tracked with nasal polyps, tissue eosinophilia, and eosinophil-dominant disease.
-Thought 2: I need a statement explicitly saying ILC2s were elevated in the polyp/eosinophilic groups.
+Thought 2: I will confirm if the study says ILC2s were higher in those groups.
 Action 2: Lookup[associated with nasal polyps]
 Observation 2: “ILC2 frequencies were associated with the presence of nasal polyps (P = 0.002) as well as high tissue eosinophilia (P = 0.004).”
-Thought 3: Because the investigators linked higher ILC2 counts to CRSwNP and eosinophilia, the answer is yes.
+Thought 3: These results show ILC2s are higher with polyps and high eosinophils.
 Action 3: Finish[yes]
+Reason: The study found ILC2 levels were higher in people with nasal polyps and with high tissue eosinophils.
 
 Question: Does vagus nerve signaling contribute to steatohepatitis and obesity in PEMT-deficient mice?
-Thought 1: I should examine the hepatic vagotomy experiment in the PEMT knockout model.
+Thought 1: I will check what happens when the vagus nerve is cut in these mice.
 Action 1: Search[PEMT knockout hepatic vagotomy steatohepatitis]
 Observation 1: After hepatic vagotomy, PEMT-/- mice lost their protection from high-fat diet obesity and steatohepatitis, whereas sham controls stayed resistant.
-Thought 2: I want confirmation that interrupting vagal signals reversed both phenotypes.
+Thought 2: I will confirm that cutting the nerve removed protection against both problems.
 Action 2: Lookup[vagotomy normalized steatohepatitis]
 Observation 2: “Hepatic vagotomy abolished the protection against HFD-induced obesity and prevented steatohepatitis in Pemt(-/-) mice.”
-Thought 3: Since cutting the vagus changed both outcomes, vagal signals must contribute.
+Thought 3: Cutting the nerve removed the protection, so vagus signals matter.
 Action 3: Finish[yes]
+Reason: When the vagus nerve was cut, the mice became obese and developed steatohepatitis on a high-fat diet.
 
 Question: Do systematic reviews in emergency medicine journals routinely search clinical trial registries?
-Thought 1: I will review how many of the 2013 intervention reviews searched registries.
+Thought 1: I will check how many reviews actually searched a registry.
 Action 1: Search[emergency medicine systematic review registry search frequency]
 Observation 1: Only 8 of 41 reviews (20%) documented registry searches, though half of those searches found unpublished trials.
-Thought 2: With only one-fifth performing the search, the practice is not routine.
+Thought 2: Only one in five searched, so it is not routine.
 Action 2: Finish[no]
+Reason: Only 20% of reviews searched registries, which is not routine.
 
 Question: Does psammaplin A induce Sirtuin 1-dependent autophagic cell death in doxorubicin-resistant MCF-7 cells?
-Thought 1: I should look for whether PsA decreased SIRT1 activity and triggered autophagy markers.
+Thought 1: I will see if PsA lowers SIRT1 activity and increases autophagy markers.
 Action 1: Search[psammaplin A SIRT1 autophagy MCF-7/adr]
 Observation 1: The abstract says PsA inhibited SIRT1 more potently than sirtinol and increased autophagy proteins and DRAM expression.
-Thought 2: I want to confirm that autophagic death occurred in the resistant line and xenografts.
+Thought 2: These changes support autophagic cell death in the resistant cells.
 Action 2: Lookup[autophagy-related proteins increased]
 Observation 2: “PsA markedly increased the expression levels of autophagy-related proteins…”
-Thought 3: Therefore PsA induced SIRT1-dependent autophagic cell death in the resistant cells.
+Thought 3: The findings support SIRT1-dependent autophagic cell death.
 Action 3: Finish[yes]
+Reason: PsA blocked SIRT1 and raised autophagy markers, which supports autophagic cell death in the resistant cells.
 
 Question: Did restaging CT after neoadjuvant chemoradiation alter surgical management in locally advanced rectal cancer?
-Thought 1: I should recall how many scans detected new metastases and whether plans changed.
+Thought 1: I will check how often scans found new disease and if surgery plans changed.
 Action 1: Search[restaging CT neoadjuvant rectal management change]
 Observation 1: Eighty-three of 91 patients underwent restaging CT, but only four scans showed suspicious distant lesions and none altered surgery.
-Thought 2: Since no surgical plans changed, the answer should be no.
+Thought 2: Plans did not change after these scans.
 Action 2: Finish[no]
+Reason: Only 4 scans found possible spread and no surgery plans changed.
 
 Question: Is cell death in mesial temporal sclerosis clearly apoptotic?
-Thought 1: I will check whether hippocampi from mesial temporal sclerosis patients showed apoptotic markers.
+Thought 1: I will look for clear signs of apoptosis like DNA breaks.
 Action 1: Search[MTS hippocampus apoptosis TUNEL Bax fractin]
 Observation 1: Neurons had increased Bax and caspase-cleaved actin, but no TUNEL-positive cells or apoptotic nuclear morphology were detected.
-Thought 2: Because some apoptotic pathways were activated but DNA fragmentation was absent, the evidence is inconclusive.
-Action 2: Finish[maybe]"""
+Thought 2: Some markers were up, but DNA breaks and classic nuclear changes were absent.
+Action 2: Finish[maybe]
+Reason: Apoptosis markers increased, but TUNEL and nuclear changes were missing, so we cannot be sure.
+"""
 
 REFLECTIONS = """
 Previous Trial:
@@ -67,28 +74,35 @@ Reflection: I should emphasize that Bax and caspase activity increased, yet no T
 
 COTQA_SIMPLE6 = """
 Question: Does hepatic vagotomy eliminate the protection of PEMT-deficient mice against high-fat diet steatohepatitis?
-Thought: Hepatic vagotomy restored obesity and normalized phospholipids while preventing steatohepatitis in PEMT-/- mice, so vagal signals are required for the phenotype.
+Thought: Cutting the vagus nerve removed protection; the mice became obese and showed steatohepatitis on a high-fat diet.
 Action: Finish[yes]
+Reason: Vagotomy abolished protection against obesity and steatohepatitis in PEMT-/- mice.
 
 Question: Are secretory phospholipases A2 released by ciliated airway cells and able to stimulate goblet cells?
-Thought: Ciliated-enriched cultures secreted sPLA2 V and X to the lumen, which triggered cysteinyl leukotriene and mucin release from IL-13-transformed goblet cells, so yes.
+Thought: Ciliated cells released sPLA2 into the airway side, which led to leukotriene and mucus release from goblet cells.
 Action: Finish[yes]
+Reason: The enzymes from ciliated cells triggered mucus-related signals and secretion in goblet cells.
 
 Question: Do systematic reviews in emergency medicine routinely search clinical trial registries?
-Thought: Only 8 of 41 intervention reviews documented registry searches, meaning the practice is uncommon.
+Thought: Only 8 of 41 did a registry search, which is uncommon.
 Action: Finish[no]
+Reason: About 20% searched registries, so it is not routine.
 
 Question: Does admission hyperglycemia predict failed fibrinolysis in ST-elevation myocardial infarction?
-Thought: Failed reperfusion was associated with higher admission glucose (126 vs 110 mg/dL) and hyperglycemia independently predicted failure (HR 4.79), so yes.
+Thought: Higher admission glucose was linked to and predicted failure of clot-dissolving treatment.
 Action: Finish[yes]
+Reason: Hyperglycemia on arrival independently predicted failed fibrinolysis.
 
 Question: Is the cell death observed in mesial temporal sclerosis definitively apoptotic?
-Thought: Bax expression and caspase activity increased, yet no TUNEL-positive nuclei or apoptotic morphology were detected, so the answer is maybe.
+Thought: Some markers were higher, but TUNEL and classic nuclei changes were absent.
 Action: Finish[maybe]
+Reason: Mixed signs mean apoptosis cannot be confirmed.
 
 Question: Does hidradenitis suppurativa carry a substantial comorbidity burden?
-Thought: HS patients had higher prevalences of smoking, metabolic syndrome, arthropathies, PCOS, and psychiatric disorders than controls, so yes.
-Action: Finish[yes]"""
+Thought: Patients with HS had more smoking, metabolic problems, joint disease, PCOS, and mood disorders than controls.
+Action: Finish[yes]
+Reason: Multiple conditions were more common in HS patients than in controls.
+"""
 
 COT_SIMPLE_REFLECTION = """
 Question: Does hepatic vagotomy contribute to the development of steatohepatitis and obesity in PEMT-deficient mice?
@@ -106,18 +120,21 @@ Reflection: I should explicitly report that only 8 of 41 intervention reviews (2
 
 COT = """Relevant PubMed Context: The chronic rhinosinusitis biopsy study counted ILC2s in 35 patients and 9 controls. ILC2 frequencies were linked to nasal polyps (P = 0.002), tissue eosinophilia (P = 0.004), eosinophil-dominant CRS (P = 0.001), and worse symptom scores.
 Question: Are ILC2s increased in chronic rhinosinusitis with nasal polyps or eosinophilia?
-Thought: Because ILC2 levels were significantly higher in CRSwNP and eosinophilic disease, the answer is yes.
+Thought: The study shows ILC2 levels are higher with nasal polyps and high eosinophils.
 Action: Finish[yes]
+Reason: ILC2 levels tracked with nasal polyps and tissue eosinophilia.
 
 Relevant PubMed Context: Only 8 of 41 emergency medicine intervention reviews in 2013 documented registry searches, though half of those searches uncovered unpublished trials.
 Question: Do emergency medicine systematic reviews routinely search clinical trial registries?
-Thought: With just 20% conducting a search, registry queries are not routine.
+Thought: Only about 20% searched registries, which is not routine.
 Action: Finish[no]
+Reason: Most reviews did not search registries.
 
 Relevant PubMed Context: Temporal lobes resected from mesial temporal sclerosis patients showed increased Bax and fractin expression, but no TUNEL-positive cells or apoptotic nuclear morphology.
 Question: Is cell death in mesial temporal sclerosis clearly apoptotic?
-Thought: Caspase activation was present but DNA fragmentation was absent, so the evidence neither confirms nor refutes apoptosis.
+Thought: Some markers increased, but TUNEL and nuclear changes were absent, so it is uncertain.
 Action: Finish[maybe]
+Reason: Mixed signs mean apoptosis cannot be confirmed.
 """
 
 COT_REFLECT = """
