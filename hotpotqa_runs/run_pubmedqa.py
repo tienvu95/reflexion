@@ -639,8 +639,10 @@ def run(args, external_llm=None):
         # repository default dataset) or when the caller explicitly requests to
         # keep the examples via `--keep-fewshot-examples`.
         keep_flag = bool(getattr(args, 'keep_fewshot_examples', False))
+        force_no_fewshots = bool(getattr(args, 'no_fewshots', False))
         is_pubmed = 'pubmedqa' in (getattr(args, 'dataset', '') or '').lower()
-        should_clear_examples = not (keep_flag or is_pubmed)
+        # If --no-fewshots is set, clear regardless of dataset; otherwise preserve for PubMedQA unless keep_fewshot_examples is True
+        should_clear_examples = force_no_fewshots or (not (keep_flag or is_pubmed))
         # Informative debug message when we preserve examples
         if not should_clear_examples and debug_enabled:
             try:
@@ -1298,6 +1300,7 @@ if __name__ == '__main__':
     p.add_argument('--no-print-debug', dest='print_debug', action='store_false', help='Disable verbose debug info')
     p.set_defaults(print_debug=True)
     p.add_argument('--keep-fewshot-examples', action='store_true', help='Preserve builtin few-shot examples (otherwise cleared unless dataset contains PubMedQA)')
+    p.add_argument('--no-fewshots', action='store_true', help='Force clear all few-shot examples regardless of dataset')
     p.add_argument('--readability-min', type=float, default=6.0, help='Minimum Flesch-Kincaid grade to consider explanation acceptable')
     p.add_argument('--readability-max', type=float, default=8.0, help='Maximum Flesch-Kincaid grade to consider explanation acceptable')
     p.add_argument('--rewrite-on-readability', action='store_true', help='If readability outside range, ask LLM to rewrite explanation at target grade (keeps label fixed)')
